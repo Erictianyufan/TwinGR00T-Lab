@@ -5,12 +5,22 @@ project-specific presentation code. The audit compares this repository against
 RoboTwin `main` at `3095469` and the `IsaacLab-Arena` branch at `e19d288` on
 2026-08-24.
 
+## Community status
+
+- Published the IsaacLab-Arena scene-reconstruction evidence as a
+  [comment on RoboTwin #288](https://github.com/RoboTwin-Platform/RoboTwin/issues/288#issuecomment-5387649341)
+  on 2026-08-24.
+- Opened [RoboTwin #491](https://github.com/RoboTwin-Platform/RoboTwin/issues/491),
+  proposing configurable post-settle stability for block-stack success.
+- No upstream code PR has been opened yet. The next patch depends on maintainer
+  feedback about data-export ownership and SAPIEN-specific threshold calibration.
+
 ## Contribution candidates
 
 | Candidate | Evidence in this project | Upstream fit | Recommended route |
 |---|---|---|---|
-| Deterministic scene reconstruction for IsaacLab-Arena replay | Clean archives without `object_info` caused bowls to spawn below the table and block actions to miss. Seed-based reconstruction restored four tasks; calibrated RGB back-projection provides a fallback. | High for the `IsaacLab-Arena` branch. The durable fix should persist initial object IDs, poses, and quaternions instead of maintaining task-specific random samplers. | Add reproduction evidence to RoboTwin issue [#288](https://github.com/RoboTwin-Platform/RoboTwin/issues/288), explicitly distinguishing it from the filesystem-order fix in PR #490. Ask maintainers whether the fix belongs in export or replay before opening a code PR. |
-| Post-settle validation for stacking | The original positional predicate accepted tilted or moving blocks. A final-action hold plus position, uprightness, linear-speed, and angular-speed checks rejected the false positive and accepted stable two- and three-block replays. | High. RoboTwin `main` still checks block center positions and open grippers but not orientation or velocity. | Open a focused RoboTwin proposal/bug issue. After maintainers confirm thresholds and timing, implement a minimal shared helper and task tests. |
+| Deterministic scene reconstruction for IsaacLab-Arena replay | Clean archives without `object_info` caused bowls to spawn below the table and block actions to miss. Seed-based reconstruction restored four tasks; calibrated RGB back-projection provides a fallback. | High for the `IsaacLab-Arena` branch. The durable fix should persist initial object IDs, poses, and quaternions instead of maintaining task-specific random samplers. | Evidence submitted in the [RoboTwin #288 comment](https://github.com/RoboTwin-Platform/RoboTwin/issues/288#issuecomment-5387649341), explicitly distinguishing it from the filesystem-order fix in PR #490. Awaiting maintainer guidance on export versus replay ownership. |
+| Post-settle validation for stacking | The original positional predicate accepted tilted or moving blocks. A final-action hold plus position, uprightness, linear-speed, and angular-speed checks rejected the false positive and accepted stable two- and three-block replays. | High. RoboTwin `main` still checks block center positions and open grippers but not orientation or velocity. | Proposal submitted as [RoboTwin #491](https://github.com/RoboTwin-Platform/RoboTwin/issues/491). After maintainers confirm thresholds and timing, implement a minimal shared helper and task tests. |
 | Contact-physics evidence for grasping | `physics_grasp.py` checks contact force, lift, continuous hand-relative pose, release, and final settling; dependency-light tests reject pose animation without contact. | Medium to high as an optional evaluator. It is broader than a single task and should not silently change leaderboard semantics. | Include it as a follow-on design in the stability issue; propose an opt-in trace/evidence layer before a code PR. |
 | RoboTwin-to-GR00T N1.7 transport and data contract | The repository implements a 14-D logical ALOHA contract, LeRobot v2 export, modality metadata, and policy-server transport. | Low as a new adapter: current RoboTwin `main` routes policies through XPolicyLab, which already contains `policy/GR00T_N17`. | Do not submit a duplicate adapter. A future contribution should add missing validation or a verified checkpoint/result to the existing XPolicyLab adapter. |
 | Multi-camera indoor and warehouse renderers | Five-camera videos, indoor materials, warehouse set dressing, and a conveyor presentation are useful for communication. | Low for the benchmark core. The warehouse demo reuses recorded RoboTwin actions and is not a new benchmark task or learned-policy result. | Keep in TwinGR00T Lab unless RoboTwin requests a visualization example. |
@@ -48,9 +58,9 @@ This is evaluation evidence from the pinned IsaacLab-Arena runtime, not a claim
 that the same thresholds have already been validated on RoboTwin's current
 SAPIEN `main` branch.
 
-## Proposed community submissions
+## Published community submissions
 
-### Comment on issue #288
+### [Comment on issue #288](https://github.com/RoboTwin-Platform/RoboTwin/issues/288#issuecomment-5387649341)
 
 ```markdown
 I reproduced a related but separate replay-fidelity failure on the
@@ -79,7 +89,7 @@ code changes. If maintainers prefer the compatibility path in `record.py`, I
 can extract a small PR without the project-specific vision heuristics.
 ```
 
-### New RoboTwin issue
+### [RoboTwin issue #491](https://github.com/RoboTwin-Platform/RoboTwin/issues/491)
 
 **Title:** `[Proposal] Require post-settle stability for block-stack success`
 
