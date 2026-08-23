@@ -1,0 +1,17 @@
+# Official IsaacLab-Arena G1 loco-manipulation baseline.
+# The checkpoint is public and fine-tuned for the 43-DoF G1 WBC task.
+model_path: /home/ubuntu/mycode/robotwin-gr00t-lab/checkpoints/GN1x-Tuned-Arena-G1-Loco-Manipulation
+language_instruction: "Pick up the brown box from the shelf, and place it into the blue bin on the table located at the right of the shelf."
+action_horizon: 16
+action_chunk_length: 16
+embodiment_tag: new_embodiment
+denoising_steps: 4
+video_backend: decord
+data_config: unitree_g1_sim_wbc
+policy_device: cuda:0
+policy_joints_config_path: /home/ubuntu/mycode/robotwin-gr00t-lab/vendor/RoboTwin/submodule/isaaclab_arena/isaaclab_arena_gr00t/config/g1/gr00t_43dof_joint_space.yaml
+action_joints_config_path: /home/ubuntu/mycode/robotwin-gr00t-lab/vendor/RoboTwin/submodule/isaaclab_arena/isaaclab_arena_gr00t/config/g1/43dof_joint_space.yaml
+state_joints_config_path: /home/ubuntu/mycode/robotwin-gr00t-lab/vendor/RoboTwin/submodule/isaaclab_arena/isaaclab_arena_gr00t/config/g1/43dof_joint_space.yaml
+pov_cam_name_sim: robot_head_cam_rgb
+task_mode_name: g1_locomanipulation
+seed: 10

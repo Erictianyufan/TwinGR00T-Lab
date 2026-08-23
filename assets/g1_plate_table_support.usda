@@ -1,0 +1,34 @@
+#usda 1.0
+(
+    defaultPrim = "PlateTableSupport"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "PlateTableSupport"
+{
+    def Material "WarmWood"
+    {
+        token outputs:surface.connect = </PlateTableSupport/WarmWood/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.42, 0.22, 0.09)
+            float inputs:metallic = 0.0
+            float inputs:roughness = 0.42
+            token outputs:surface
+        }
+    }
+
+    def Cube "Top" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 1
+        bool physics:collisionEnabled = 1
+        rel material:binding = </PlateTableSupport/WarmWood>
+        double3 xformOp:scale = (0.45, 0.70, 0.04)
+        double3 xformOp:translate = (0.58, 0.0, 0.048)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+}

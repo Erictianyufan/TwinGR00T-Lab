@@ -1,0 +1,93 @@
+#usda 1.0
+(
+    defaultPrim = "ServingTrayG1"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "ServingTrayG1" (
+    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+)
+{
+    float physics:mass = 0.34
+    bool physics:rigidBodyEnabled = 1
+
+    def Material "CeramicBlue"
+    {
+        token outputs:surface.connect = </ServingTrayG1/CeramicBlue/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.055, 0.30, 0.68)
+            float inputs:metallic = 0.03
+            float inputs:roughness = 0.20
+            token outputs:surface
+        }
+    }
+
+    def Material "Grip"
+    {
+        token outputs:surface.connect = </ServingTrayG1/Grip/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.035, 0.045, 0.065)
+            float inputs:metallic = 0.10
+            float inputs:roughness = 0.52
+            token outputs:surface
+        }
+    }
+
+    def Xform "Geometry"
+    {
+        quatf xformOp:orient = (0, 0, 1, 0)
+        uniform token[] xformOpOrder = ["xformOp:orient"]
+
+        def Cylinder "Base" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            uniform token axis = "Z"
+            double height = 0.014
+            double radius = 0.145
+            bool physics:collisionEnabled = 1
+            rel material:binding = </ServingTrayG1/CeramicBlue>
+            double3 xformOp:translate = (0, 0, 0.007)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Torus "RaisedRim"
+        {
+            uniform token axis = "Z"
+            double majorRadius = 0.133
+            double minorRadius = 0.014
+            rel material:binding = </ServingTrayG1/CeramicBlue>
+            double3 xformOp:translate = (0, 0, 0.020)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        def Cube "LeftGrip" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+            bool physics:collisionEnabled = 1
+            rel material:binding = </ServingTrayG1/Grip>
+            double3 xformOp:translate = (-0.150, 0.072, 0.060)
+            double3 xformOp:scale = (0.100, 0.060, 0.050)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+
+        def Cube "RightGrip" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+            bool physics:collisionEnabled = 1
+            rel material:binding = </ServingTrayG1/Grip>
+            double3 xformOp:translate = (-0.180, -0.120, 0.040)
+            double3 xformOp:scale = (0.100, 0.080, 0.055)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+    }
+}

@@ -1,0 +1,126 @@
+#usda 1.0
+(
+    defaultPrim = "SimpleHomeRoom"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "SimpleHomeRoom"
+{
+    def Material "FloorMaterial"
+    {
+        token outputs:surface.connect = </SimpleHomeRoom/FloorMaterial/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.58, 0.43, 0.29)
+            float inputs:metallic = 0
+            float inputs:roughness = 0.62
+            token outputs:surface
+        }
+    }
+
+    def Material "WallMaterial"
+    {
+        token outputs:surface.connect = </SimpleHomeRoom/WallMaterial/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.78, 0.81, 0.84)
+            float inputs:metallic = 0
+            float inputs:roughness = 0.72
+            token outputs:surface
+        }
+    }
+
+    def Material "CounterMaterial"
+    {
+        token outputs:surface.connect = </SimpleHomeRoom/CounterMaterial/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.48, 0.25, 0.09)
+            float inputs:metallic = 0
+            float inputs:roughness = 0.42
+            token outputs:surface
+        }
+    }
+
+    def Material "TransferMaterial"
+    {
+        token outputs:surface.connect = </SimpleHomeRoom/TransferMaterial/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.18, 0.31, 0.42)
+            float inputs:metallic = 0.08
+            float inputs:roughness = 0.36
+            token outputs:surface
+        }
+    }
+
+    def Cube "Floor" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 2
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        rel material:binding = </SimpleHomeRoom/FloorMaterial>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:scale = (3.5, 3.5, 0.05)
+        double3 xformOp:translate = (0, -0.8, -0.85)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Cube "BackWall" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 2
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        rel material:binding = </SimpleHomeRoom/WallMaterial>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:scale = (3.5, 0.05, 1.5)
+        double3 xformOp:translate = (0, 2.65, 0.7)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Cube "SideWall" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 2
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        rel material:binding = </SimpleHomeRoom/WallMaterial>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:scale = (0.05, 3.5, 1.5)
+        double3 xformOp:translate = (-3.45, -0.8, 0.7)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Cube "PickupCounter" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 2
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        rel material:binding = </SimpleHomeRoom/CounterMaterial>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:scale = (0.55, 0.38, 0.4)
+        double3 xformOp:translate = (0.65, 0.18, -0.385)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Cube "TransferTable" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        double size = 2
+        float3[] extent = [(-1, -1, -1), (1, 1, 1)]
+        rel material:binding = </SimpleHomeRoom/TransferMaterial>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:scale = (0.55, 0.45, 0.27)
+        double3 xformOp:translate = (-0.25, -1.63, -0.54)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+}

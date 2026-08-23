@@ -1,0 +1,7 @@
+# Isaac Sim 5.1 / Pink IK compatibility lock used for G1 MimicGen.
+# qpsolvers 4.13 expects OSQP 1.x, but Isaac Sim 5.1 pins OSQP 0.6.7.
+numpy==1.26.0
+scipy==1.15.3
+qdldl==0.1.7.post5
+osqp==0.6.7.post3
+qpsolvers==4.8.1

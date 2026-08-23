@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "twingr00t-lab"
+version = "0.1.0"
+description = "Reproducible GR00T N1.7 experiments on RoboTwin 2.0 and Isaac Lab"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.9"]
+data = ["h5py>=3.11", "pillow>=10", "pyarrow>=17"]
+bridge = ["msgpack>=1.1", "msgpack-numpy>=0.4.8", "pyzmq>=26"]
+
+[project.scripts]
+twingr00t-audit = "twingr00t_lab.dataset:main"
+twingr00t-convert = "twingr00t_lab.conversion:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/twingr00t_lab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files are copied into an upstream IsaacLab-Arena checkout. Several
+# imports intentionally trigger registry side effects and must remain in the
+# same runtime-local blocks as the vendor implementations.
+"remote_overrides/*.py" = ["E402", "E501", "E701", "F401", "F541", "I001", "UP015"]

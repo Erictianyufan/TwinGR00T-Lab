@@ -1,0 +1,60 @@
+#usda 1.0
+(
+    defaultPrim = "ServingPlate"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "ServingPlate" (
+    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+)
+{
+    float physics:mass = 0.34
+    bool physics:rigidBodyEnabled = 1
+
+    def Material "Ceramic"
+    {
+        token outputs:surface.connect = </ServingPlate/Ceramic/PreviewSurface.outputs:surface>
+        def Shader "PreviewSurface"
+        {
+            uniform token info:id = "UsdPreviewSurface"
+            color3f inputs:diffuseColor = (0.08, 0.34, 0.64)
+            float inputs:metallic = 0.02
+            float inputs:roughness = 0.16
+            token outputs:surface
+        }
+    }
+
+    def Cylinder "Base" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        uniform token axis = "Z"
+        double height = 0.012
+        double radius = 0.142
+        rel material:binding = </ServingPlate/Ceramic>
+        bool physics:collisionEnabled = 1
+        double3 xformOp:translate = (0, 0, 0.006)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Torus "RaisedRim"
+    {
+        uniform token axis = "Z"
+        double majorRadius = 0.132
+        double minorRadius = 0.014
+        rel material:binding = </ServingPlate/Ceramic>
+        double3 xformOp:translate = (0, 0, 0.018)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Cylinder "InnerWell"
+    {
+        uniform token axis = "Z"
+        double height = 0.004
+        double radius = 0.108
+        rel material:binding = </ServingPlate/Ceramic>
+        double3 xformOp:translate = (0, 0, 0.014)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
