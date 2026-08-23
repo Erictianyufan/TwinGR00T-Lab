@@ -40,8 +40,12 @@ from replay_live_multiview import (
 from twingr00t_lab.physics_grasp import evaluate_physics_grasps
 
 ISAAC_ASSET_ROOT = Path("/home/ubuntu/readonly/Assets/Isaac/5.1/Isaac")
-WAREHOUSE_ASSET = ISAAC_ASSET_ROOT / "Environments/Digital_Twin_Warehouse/small_warehouse_digital_twin.usd"
+WAREHOUSE_ASSET = (
+    ISAAC_ASSET_ROOT / "Environments/Simple_Warehouse/warehouse_multiple_shelves.usd"
+)
 CONVEYOR_ASSET = ISAAC_ASSET_ROOT / "Props/Conveyors/ConveyorBelt_A01.usd"
+PALLET_ASSET = ISAAC_ASSET_ROOT / "Props/Pallet/pallet.usd"
+BOX_ASSET = ISAAC_ASSET_ROOT / "Environments/Simple_Warehouse/Props/SM_CardBoxA_01.usd"
 PARCEL_NAMES = ("block1", "block2", "block3")
 CONTACT_SENSOR_NAMES = tuple(f"{name}_gripper_contacts" for name in PARCEL_NAMES)
 
@@ -88,33 +92,77 @@ def configure_physical_parcels(env_cfg: Any) -> None:
 
 
 def spawn_warehouse_context() -> dict[str, str]:
-    """Add the production warehouse assets without adding animated parcels."""
+    """Build a visible, collision-free logistics set around the workcell."""
     import isaaclab.sim as sim_utils
     import isaacsim.core.utils.prims as prim_utils
+    import omni.usd
+    from pxr import Usd, UsdPhysics
 
-    for path in (WAREHOUSE_ASSET, CONVEYOR_ASSET):
+    for path in (WAREHOUSE_ASSET, CONVEYOR_ASSET, PALLET_ASSET, BOX_ASSET):
         if not path.exists():
             raise FileNotFoundError(f"Required Isaac asset is missing: {path}")
+
+    stage = omni.usd.get_context().get_stage()
+
+    def disable_physics(prim_path: str) -> None:
+        """Keep set dressing visible without letting it disturb task physics."""
+        root_prim = stage.GetPrimAtPath(prim_path)
+        for prim in Usd.PrimRange(root_prim):
+            if prim.HasAPI(UsdPhysics.CollisionAPI):
+                UsdPhysics.CollisionAPI(prim).CreateCollisionEnabledAttr(False)
+            if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+                UsdPhysics.RigidBodyAPI(prim).CreateRigidBodyEnabledAttr(False)
 
     root = "/World/PhysicalParcelSorting"
     prim_utils.create_prim(root, "Xform")
     prim_utils.create_prim(
         f"{root}/Warehouse",
         "Xform",
-        translation=(-7.5, -5.5, 0.0),
-        scale=(0.55, 0.55, 0.55),
+        # The authored warehouse spans roughly y=[-23.5, 26.5].  Move its open
+        # loading-bay edge to the workcell instead of enclosing the cameras in
+        # a wall at the asset origin.
+        translation=(0.0, -26.0, 0.0),
+        scale=(1.0, 1.0, 1.0),
         usd_path=str(WAREHOUSE_ASSET),
     )
+    disable_physics(f"{root}/Warehouse")
     prim_utils.create_prim(
         f"{root}/Conveyor",
         "Xform",
-        # The production asset's authored origin is far from its visual center.
-        # Keep it outside the compact RoboTwin table so its collision meshes do
-        # not cover or pin the physical parcels.
-        translation=(2.35, 1.55, 0.05),
-        scale=(0.75, 0.75, 0.75),
+        translation=(-1.05, -0.95, 0.0),
+        scale=(0.22, 0.22, 0.22),
         usd_path=str(CONVEYOR_ASSET),
     )
+    disable_physics(f"{root}/Conveyor")
+
+    prim_utils.create_prim(
+        f"{root}/Pallet",
+        "Xform",
+        translation=(-1.05, -0.92, 0.0),
+        scale=(0.65, 0.65, 0.65),
+        usd_path=str(PALLET_ASSET),
+    )
+    disable_physics(f"{root}/Pallet")
+    for index, (position, scale) in enumerate(
+        (
+            ((-1.18, -0.94, 0.10), 0.35),
+            ((-0.91, -0.94, 0.10), 0.35),
+            ((-1.05, -0.94, 0.29), 0.35),
+            ((-0.82, -2.02, 0.50), 0.42),
+            ((-0.28, -2.02, 1.08), 0.42),
+            ((0.30, -2.02, 1.08), 0.42),
+            ((0.80, -2.02, 1.66), 0.42),
+        )
+    ):
+        path = f"{root}/BackgroundBoxes/Box{index + 1}"
+        prim_utils.create_prim(
+            path,
+            "Xform",
+            translation=position,
+            scale=(scale, scale, scale),
+            usd_path=str(BOX_ASSET),
+        )
+        disable_physics(path)
 
     def panel(
         path: str,
@@ -133,9 +181,33 @@ def spawn_warehouse_context() -> dict[str, str]:
         )
         cfg.func(path, cfg, translation=position)
 
-    panel(f"{root}/Room/Floor", (8.5, 6.5, 0.10), (0.0, -0.2, -0.08), (0.25, 0.27, 0.29))
-    panel(f"{root}/Room/BackWall", (8.5, 0.10, 3.2), (0.0, -3.15, 1.52), (0.56, 0.60, 0.63))
-    panel(f"{root}/Room/SafetyBand", (8.3, 0.025, 0.18), (0.0, -3.08, 1.0), (0.92, 0.68, 0.08), 0.42)
+    # A camera-safe industrial wall and storage rack make the logistics context
+    # legible even in the tight RoboTwin camera frusta.  The cartons and pallet
+    # remain official Isaac assets; these beams are non-colliding set dressing.
+    panel(f"{root}/LogisticsWall", (4.8, 0.06, 2.8), (0.0, -2.25, 1.38), (0.10, 0.14, 0.18))
+    for index, x in enumerate((-1.20, -0.42, 0.42, 1.20)):
+        panel(
+            f"{root}/Rack/Upright{index + 1}",
+            (0.055, 0.20, 2.15),
+            (x, -2.12, 1.08),
+            (0.94, 0.57, 0.05),
+            0.38,
+        )
+    for index, z in enumerate((0.38, 0.96, 1.54, 2.12)):
+        panel(
+            f"{root}/Rack/Shelf{index + 1}",
+            (2.48, 0.42, 0.055),
+            (0.0, -2.08, z),
+            (0.22, 0.27, 0.31),
+            0.44,
+        )
+        panel(
+            f"{root}/Rack/Beam{index + 1}",
+            (2.52, 0.045, 0.10),
+            (0.0, -1.85, z),
+            (0.95, 0.55, 0.04),
+            0.36,
+        )
 
     # Thin non-colliding destination markers sit on the existing RoboTwin
     # table.  They do not alter parcel physics or support the objects.
@@ -163,7 +235,12 @@ def spawn_warehouse_context() -> dict[str, str]:
         )
         light.func(f"{root}/Lights/{name}", light, translation=position)
 
-    return {"warehouse": str(WAREHOUSE_ASSET), "conveyor": str(CONVEYOR_ASSET)}
+    return {
+        "warehouse": str(WAREHOUSE_ASSET),
+        "conveyor": str(CONVEYOR_ASSET),
+        "pallet": str(PALLET_ASSET),
+        "background_boxes": str(BOX_ASSET),
+    }
 
 
 def _xyz(value: Any) -> np.ndarray:
@@ -229,6 +306,13 @@ def physics_scene_contract(env: gym.Env) -> dict[str, Any]:
 
 def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
     draw = ImageDraw.Draw(image, "RGBA")
+    draw.rectangle((0, 0, image.width, 58), fill=(3, 10, 17, 255))
+    draw.text(
+        (22, 13),
+        "TwinGR00T Lab  |  Isaac Sim warehouse logistics  |  Contact-physics parcel routing",
+        font=load_font(21, bold=True),
+        fill=(239, 244, 255, 255),
+    )
     maximum = float(np.max(forces))
     active = int(np.count_nonzero(forces >= 0.05))
     draw.rounded_rectangle((24, 925, 750, 1011), 10, fill=(3, 10, 17, 215))
@@ -404,6 +488,8 @@ def main() -> None:
             "cameras": list(CAMERA_KEYS),
             "warehouse_asset": assets["warehouse"],
             "conveyor_asset": assets["conveyor"],
+            "logistics_set_assets": assets,
+            "set_dressing_physics_disabled": True,
             "robot": "ALOHA AgileX",
             "controller": "recorded successful RoboTwin joint and gripper targets",
             "parcel_dynamics": "PhysX dynamic rigid bodies with collision, friction, and gravity",

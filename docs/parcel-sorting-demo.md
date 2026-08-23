@@ -1,14 +1,18 @@
 # Isaac warehouse contact-physics parcel demo
 
-This verified presentation places the ALOHA bimanual workcell inside the Isaac
-Digital Twin Warehouse and references an official Isaac conveyor asset as scene
-context. Three visible parcel rigid bodies are picked, transported, routed to
-marked destinations, released, and allowed to settle under PhysX.
+This verified presentation places the ALOHA bimanual workcell at a visible
+Isaac Simple Warehouse logistics station. The set includes the official Isaac
+warehouse, conveyor, pallet, and cardboard-box assets plus a camera-safe storage
+rack. Three parcel rigid bodies are picked, transported, routed to marked
+destinations, released, and allowed to settle under PhysX.
 
 The execution contract is deliberately strict:
 
 - parcels retain the RoboTwin task's dynamic rigid-body, collision, friction,
   mass, and gravity configuration;
+- warehouse set dressing is visual-only: its collision and rigid-body APIs are
+  disabled so racks, pallets, cartons, and the conveyor cannot disturb the
+  verified manipulation physics;
 - parcel world poses are written only during initial-state restoration and are
   never animated during the replay;
 - grasping uses native collision and friction between the parcels and four

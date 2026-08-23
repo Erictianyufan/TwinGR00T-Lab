@@ -94,6 +94,11 @@ and no fixed-joint attachment. The five-camera recording exposes filtered
 finger contact forces, while its manifest verifies lift, continuous contact,
 gripper-local relative-pose drift, and post-release stability for every parcel.
 
+The visible set uses the official Isaac Simple Warehouse, conveyor, pallet, and
+cardboard-box assets, plus a camera-safe storage rack around the compact
+RoboTwin workcell. Set-dressing collisions and rigid bodies are disabled so the
+warehouse remains visible without changing parcel or gripper physics.
+
 The renderer disables the source task's success-triggered auto-reset so the
 third grasp runs through its recorded release instead of snapping the robot
 back to its initial pose. The checked run lifted all parcels by about 8 cm,
