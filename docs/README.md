@@ -13,6 +13,7 @@ for rendering and acceptance details.
 | [`deployment.md`](deployment.md) | Validated dual-4090 cloud setup, pinned versions, bootstrap, and secrets policy |
 | [`block-stability.md`](block-stability.md) | Post-settle acceptance criteria for block stacking |
 | [`parcel-sorting-demo.md`](parcel-sorting-demo.md) | Physical conveyor feed and contact-grasp warehouse demo |
+| [`upstream-contributions.md`](upstream-contributions.md) | RoboTwin contribution audit, evidence, and community submission drafts |
 
 ## Experimental branches
 
@@ -41,4 +42,3 @@ and claims against the core documentation and source tree.
 - Keep exact setup commands in runbooks and keep the root README concise.
 - Never include host passwords, tokens, private dataset URLs, or temporary
   authorization codes.
-
