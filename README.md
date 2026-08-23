@@ -4,17 +4,41 @@
 
 **RoboTwin 2.0 × GR00T N1.7 × NVIDIA Isaac Lab**
 
-Reproducible bimanual manipulation experiments and presentation-grade,
-multi-camera digital-twin demos.
+An evidence-first toolkit for reproducible bimanual manipulation experiments,
+contact-physics validation, and multi-camera digital-twin demos.
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-5.1-76B900?logo=nvidia&logoColor=white)](docs/deployment.md)
-[![Tests](https://img.shields.io/badge/tests-34%20passed-2EA44F)](tests)
-[![Maintainer](https://img.shields.io/badge/maintainer-%40Erictianyufan-181717?logo=github)](https://github.com/Erictianyufan)
+[![Policy](https://img.shields.io/badge/GR00T-N1.7--3B-FFB000)](docs/experiment-design.md)
+[![Quality](https://img.shields.io/badge/quality-pytest%20%2B%20Ruff-2EA44F)](CONTRIBUTING.md#quality-gates)
+[![Author](https://img.shields.io/badge/author-Erictianyufan-181717?logo=github)](https://github.com/Erictianyufan)
 
-<img src="docs/media/parcel_sorting.gif" alt="Isaac warehouse bimanual parcel sorting" width="900" />
+<img src="docs/media/parcel_sorting.gif" alt="ALOHA sorting parcels in an Isaac Sim warehouse" width="900" />
+
+[Quick start](#quick-start) · [Architecture](docs/architecture.md) ·
+[Experiment protocol](docs/experiment-design.md) · [Deployment](docs/deployment.md) ·
+[Contributing](CONTRIBUTING.md) · [Citation](CITATION.cff)
 
 </div>
+
+## What this repository provides
+
+TwinGR00T Lab connects the RoboTwin task and demonstration format to an
+Isaac Sim/Isaac Lab runtime, a 14-dimensional ALOHA action contract, an
+optional GR00T N1.7 policy service, and machine-checkable experiment artifacts.
+It is designed around one rule: a video is presentation evidence only after the
+corresponding physics, task, and settling checks pass.
+
+- **Reproducible data path:** audit RoboTwin HDF5 demonstrations and convert
+  episode-disjoint splits to a GR00T-flavored LeRobot v2 dataset.
+- **Dual-runtime isolation:** keep the Isaac simulator and GR00T dependencies in
+  separate Python environments and assign them to separate GPUs.
+- **Contact-aware demos:** retain rigid-body dynamics, collision, friction,
+  gravity, and post-release settling during verified manipulation.
+- **Auditable outputs:** pair videos with JSON manifests and compressed traces
+  containing actions, object motion, poses, and contact diagnostics.
+- **Clear claim boundaries:** distinguish verified recorded-action replay from
+  experimental GR00T inference and post-training.
 
 ## Demo gallery
 
@@ -24,115 +48,116 @@ multi-camera digital-twin demos.
     <td width="50%" align="center"><strong>Stable three-block stacking</strong></td>
   </tr>
   <tr>
-    <td><img src="docs/media/bowl_stacking.gif" alt="ALOHA bowl stacking demo" width="100%" /></td>
-    <td><img src="docs/media/three_block_stacking.gif" alt="ALOHA three-block stacking demo" width="100%" /></td>
+    <td><img src="docs/media/bowl_stacking.gif" alt="ALOHA stacking two bowls" width="100%" /></td>
+    <td><img src="docs/media/three_block_stacking.gif" alt="ALOHA stacking three blocks" width="100%" /></td>
   </tr>
 </table>
 
-The current verified showcase focuses on ALOHA bimanual tasks. Stack demos are
-accepted only after a post-action settling window verifies that every object is
-centered, upright, and nearly stationary; a task's position-only success flag is
-not sufficient. See [`docs/block-stability.md`](docs/block-stability.md).
+The block demos are accepted only after an additional settling window verifies
+centering, uprightness, linear speed, and angular speed. The warehouse demo
+adds a continuous physical infeed: three dynamic parcels travel about 0.414 m,
+stop at the pickup zone, and are sorted through finger collision and friction.
+See [block stability](docs/block-stability.md) and
+[parcel sorting](docs/parcel-sorting-demo.md) for the acceptance contracts.
 
-The experimental **HomeRelay G1 + GR00T + RoboTwin** integration remains
-available separately. It combines the official Unitree G1 articulation, an
-ALOHA handoff, and bowl stacking in one Isaac Sim timeline; it is not included
-in the verified ALOHA-only showcase. See
-[`docs/g1_groot_merge.md`](docs/g1_groot_merge.md).
+## Project framework
 
-## Status
+```mermaid
+flowchart LR
+    subgraph inputs ["Data and configuration"]
+        demos[(RoboTwin HDF5)]
+        taskConfig["Task configs"]
+        isaacAssets["Isaac assets"]
+    end
 
-This repository is an experiment harness, not a claim that GR00T has reproduced RoboTwin results. A stage is marked complete only after its acceptance checks and artifacts exist.
+    subgraph preparation ["Preparation pipeline"]
+        audit["Dataset audit"]
+        conversion["LeRobot v2 conversion"]
+        checkpoint["GR00T post-training"]
+    end
 
-Initial target:
+    subgraph runtime ["Dual-GPU runtime"]
+        arena["RoboTwin Arena"]
+        simulator["Isaac Sim and PhysX"]
+        replay["Recorded ALOHA replay"]
+        bridge["Policy bridge"]
+        policy["GR00T N1.7 server"]
+    end
 
-- task: `stack_bowls_three`
-- embodiment: Aloha AgileX
-- simulator: Isaac Sim 5.1.0
-- robot framework: Isaac Lab 2.3.x / Isaac Lab-Arena 0.1.1
-- policy: `nvidia/GR00T-N1.7-3B`
-- cameras: head, left wrist, right wrist
-- canonical state/action: 14 dimensions
+    subgraph validation ["Validation and delivery"]
+        observations[(RGB state contacts)]
+        metrics["Acceptance gates"]
+        artifacts["MP4, GIF, JSON, NPZ"]
+    end
 
-## Architecture
+    demos --> audit --> conversion
+    conversion -.->|"Training data"| checkpoint
+    checkpoint -.->|"Experimental"| policy
+    taskConfig --> arena -->|"Launches task"| simulator
+    isaacAssets --> simulator
+    demos -->|"Verified actions"| replay -->|"Joint targets"| simulator
+    simulator -.->|"RGB and state"| bridge
+    bridge -.->|"Policy request"| policy
+    policy -.->|"14-D action"| bridge
+    bridge -.->|"Experimental targets"| simulator
+    simulator --> observations --> metrics -->|"Accepted runs"| artifacts
 
-```text
-GPU 0: RoboTwin + Isaac Sim + cameras
-                 |
-                 | policy request/response
-                 v
-GPU 1: GR00T N1.7 policy server
-
-Separate 40 GB+ GPU job: GR00T post-training
+    classDef verified fill:#d3f9d8,stroke:#2b8a3e
+    classDef experimental fill:#fff3bf,stroke:#e67700
+    class replay,simulator,metrics verified
+    class checkpoint,bridge,policy experimental
 ```
 
-The simulator and policy use separate Python environments. The preinstalled Isaac Sim 6 environment is retained for a later migration experiment and is not modified by the strict reproduction setup.
+Green nodes are on the currently verified presentation path. Yellow nodes are
+implemented or planned experiment interfaces and must not be interpreted as a
+validated GR00T result. The detailed component and deployment view is in
+[`docs/architecture.md`](docs/architecture.md).
 
-## Repository layout
+## Evidence and project status
 
-```text
-configs/                 pinned versions and experiment configuration
-docs/                    experiment design and runbooks
-scripts/                 remote diagnostics and deployment helpers
-src/twingr00t_lab/       reusable data and policy contracts
-tests/                   dependency-light contract tests
-vendor/                  ignored upstream checkouts on the cloud host
-artifacts/               ignored videos and model artifacts
-results/                 small versionable metrics and manifests
-```
+| Area | State | Evidence boundary |
+|---|---|---|
+| Bowl and block stacking | Verified replay | RoboTwin joint/gripper targets, Isaac physics, task success, post-settle checks |
+| Warehouse parcel sorting | Verified replay | Physical conveyor traction, finger contacts, lift, hold, release, and settling traces |
+| Dataset audit and conversion | Implemented | 14-D state/action contract, camera and episode consistency checks |
+| GR00T policy transport | Implemented interface | Numeric request/response boundary; not a closed-loop learning result |
+| GR00T N1.7 post-training | Experimental | Requires a separate GPU with at least 40 GB VRAM |
+| G1 home-service composition | Experimental archive | Kept outside the accepted ALOHA-only showcase |
+| Isaac Sim 6 / Isaac Lab 3 migration | Planned track | Results must not be pooled with the strict Sim 5.1 track |
 
-Large datasets, checkpoints, generated videos, upstream repositories, and local
-Isaac assets are intentionally excluded from Git. Each rendered artifact is
-paired with a JSON manifest on the experiment host.
+The verified demo controller uses successful recorded RoboTwin targets. It does
+**not** claim that GR00T produced the actions shown in the current GIFs. The
+research question and gates for making that claim are documented in
+[`docs/experiment-design.md`](docs/experiment-design.md).
 
-## Warehouse parcel-sorting showcase
+## Quick start
 
-`scripts/parcel_sorting_physics_demo.py` is the verified renderer. It keeps all
-three parcels as dynamic PhysX rigid bodies throughout one continuous flow:
-a closed-loop tangential traction model moves them 0.41 m along the visible
-feed belt, they stop at the pickup positions, and ALOHA sorts them through
-finger collision and friction. There are no per-frame parcel pose writes and
-no fixed-joint attachments. The five-camera recording exposes the feed phase
-and filtered finger contacts, while its manifest verifies conveyor arrival,
-lift, continuous contact, gripper-local drift, and post-release stability.
-
-The visible set uses the official Isaac Simple Warehouse, conveyor, pallet, and
-cardboard-box assets, plus a camera-safe storage rack around the compact
-RoboTwin workcell. Set-dressing collisions and rigid bodies are disabled so the
-warehouse remains visible without changing parcel or gripper physics.
-A compact feed conveyor with a dark belt, safety rails, support legs, lane
-markers, and the three moving parcels is kept visible in the overall camera.
-
-The renderer disables the source task's success-triggered auto-reset so the
-third grasp runs through its recorded release instead of snapping the robot
-back to its initial pose. The checked run transported every parcel about
-0.414 m, arrived within 5.9 mm, lifted all parcels by 7.9–8.7 cm, kept grasp
-relative drift below 5.7 mm, and settled below 0.08 mm/s. It uses recorded
-successful RoboTwin joint/gripper targets and does not claim GR00T inference
-or native surface-velocity physics. See
-[`docs/parcel-sorting-demo.md`](docs/parcel-sorting-demo.md).
-
-`scripts/parcel_sorting_demo.py` remains as a clearly labelled legacy
-kinematic presentation renderer for comparison.
-
-## Local checks
+Dependency-light development and contract tests run without Isaac Sim:
 
 ```bash
+git clone https://github.com/Erictianyufan/TwinGR00T-Lab.git
+cd TwinGR00T-Lab
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 pytest
+ruff check .
 ```
 
-Audit downloaded demonstrations before conversion:
+For the validated cloud layout—Ubuntu 22.04, two RTX 4090 GPUs, 128 GB RAM,
+and about 500 GB disk—follow the
+[`docs/deployment.md`](docs/deployment.md) runbook. Keep the simulator on GPU 0
+and the policy service on GPU 1; two 24 GB cards do not become one 48 GB device
+for GR00T post-training.
+
+### Audit and convert a smoke episode
 
 ```bash
 python -m pip install -e '.[data]'
-twingr00t-audit vendor/RoboTwin/data/stack_bowls_three/data/demo_*.hdf5 \
+twingr00t-audit vendor/RoboTwin/data/stack_bowls_three/data/demo_0.hdf5 \
   --output results/manifests/smoke-data.json
-```
 
-Convert a one-episode smoke set to GR00T-flavored LeRobot v2:
-
-```bash
 twingr00t-convert \
   --input-dir vendor/RoboTwin/data/stack_bowls_three \
   --output-dir data/lerobot/stack_bowls_three-smoke \
@@ -140,88 +165,59 @@ twingr00t-convert \
   --manifest results/manifests/conversion-smoke.json
 ```
 
-The converter writes 14-D measured state/action Parquet, three H.264 camera
-streams, language metadata and the GR00T modality contract. It refuses to replace
-an existing output directory.
-
-Create leakage-safe episode datasets with source IDs 0-79, 80-89 and 90-99:
-
-```bash
-twingr00t-convert --input-dir vendor/RoboTwin/data/stack_bowls_three \
-  --output-dir data/lerobot/stack_bowls_three-train --start-episode 0 --limit 80
-twingr00t-convert --input-dir vendor/RoboTwin/data/stack_bowls_three \
-  --output-dir data/lerobot/stack_bowls_three-val --start-episode 80 --limit 10
-twingr00t-convert --input-dir vendor/RoboTwin/data/stack_bowls_three \
-  --output-dir data/lerobot/stack_bowls_three-test --start-episode 90 --limit 10
-```
-
-Launch the strict RoboTwin Arena task on GPU 0:
+### Run the strict simulator smoke test
 
 ```bash
 source /home/ubuntu/env_robotwin/bin/activate
 python scripts/smoke_arena.py \
   --headless --device cuda:0 --steps 50 \
-  --environment manip_eval_tasks.examples.manipulation.stack_bowls_three_environment:StackBowlsThreeEnvironment \
-  stack_bowls_three --embodiment aloha --enable_cameras True \
-  --output results/manifests/arena-smoke.json
-```
-
-Do not set `CUDA_VISIBLE_DEVICES` for Isaac Sim; select the simulator GPU with  
-`--device cuda:0`. The policy service will use GPU 1 from its separate process.
-
-## Continuous home-service demo
-
-The first `TwinGR00T HomeRelay` demo keeps a kitchen, living room, dining family, humanoid carrier, ALOHA workcell,
-handoff, and bowl-stacking task in one continuous Isaac Sim timeline:
-
-```bash
-source /home/ubuntu/env_robotwin/bin/activate
-python scripts/home_service_demo.py \
-  vendor/RoboTwin/data/stack_bowls_three/data/demo_0.hdf5 \
-  --output artifacts/videos/home_relay_demo_v1.mp4 \
-  --headless --device cuda:0 --rendering_mode quality \
+  --output results/manifests/arena-smoke.json \
   --environment manip_eval_tasks.examples.manipulation.stack_bowls_three_environment:StackBowlsThreeEnvironment \
   stack_bowls_three --embodiment aloha --enable_cameras True
 ```
 
-See [`docs/home_service_demo.md`](docs/home_service_demo.md) for the phase contract, acceptance criteria, and G1/GR00T
-replacement boundary.
+Do not set `CUDA_VISIBLE_DEVICES` for Isaac Sim on the validated host; use
+`--device cuda:0` so Vulkan and CUDA enumerate the same simulator GPU.
 
-Install the isolated GR00T N1.7 runtime after the simulator check passes:
+## Repository map
 
-```bash
-bash scripts/bootstrap_groot.sh
+```text
+assets/                  lightweight project-authored USD assets
+configs/                 pinned versions and experiment configuration
+docs/                    architecture, protocols, runbooks, and checkpoints
+remote_overrides/        reviewed patches copied into upstream environments
+scripts/                 bootstrap, rendering, evaluation, and audit entrypoints
+src/twingr00t_lab/       data contracts, conversion, policy bridge, and metrics
+tests/                   dependency-light unit and contract tests
+artifacts/               ignored generated media and large runtime outputs
+results/                 ignored or selectively versioned metrics and manifests
+vendor/                  ignored upstream checkouts on the experiment host
 ```
 
-This completes a code/import smoke test without downloading gated model weights.
+Start with the [`docs/` index](docs/README.md). Large datasets, checkpoints,
+videos, upstream repositories, and provider assets are intentionally excluded
+from Git; compact showcase GIFs are the exception.
 
-After verifying the Hugging Face account and accepting access to
-`nvidia/Cosmos-Reason2-2B`, authenticate interactively and validate the base
-policy on GPU 1:
+## Reproducibility and responsible use
 
-```bash
-/home/ubuntu/env_groot/bin/hf auth login
-cd vendor/Isaac-GR00T-N1.7
-/home/ubuntu/env_groot/bin/python ../../scripts/smoke_groot.py \
-  --device cuda:1 --output ../../results/manifests/groot-weights.json
-```
+- Record exact source commits, runtime versions, commands, seeds, and hardware.
+- Keep train, validation, and test episodes disjoint; never split by frame.
+- Never commit SSH passwords, Hugging Face tokens, cloud credentials, or model
+  access tokens. Follow [`SECURITY.md`](SECURITY.md) if a secret is exposed.
+- Treat simulation success as simulation evidence, not proof of safe real-robot
+  deployment. Add hardware limits, emergency stops, and independent validation
+  before transferring any policy to a physical robot.
+- Respect the licenses and access terms of RoboTwin, NVIDIA models, simulator
+  assets, robot descriptions, and every downloaded dependency.
 
-Use `scripts/run_finetune.sh` only on a GPU with at least 40 GB VRAM. The dual
-4090 host is the intended closed-loop simulator/inference node, not a supported
-full post-training node.
+## Author, citation, and license
 
-## Reproduction stages
+TwinGR00T Lab is authored and maintained by
+[Erictianyufan](https://github.com/Erictianyufan). GitHub contribution credit is
+derived from commit authorship; scholarly/software citation metadata is provided
+in [`CITATION.cff`](CITATION.cff).
 
-1. Pin and validate the official RoboTwin IsaacLab-Arena environment.
-2. Replay a five-demo smoke subset, then audit all 100 public demonstrations.
-3. Convert RoboTwin HDF5 into GR00T-flavored LeRobot v2.
-4. Run GR00T open-loop inference and a bounded post-training smoke test.
-5. Evaluate a frozen checkpoint on held-out initial states and language prompts.
-
-See `docs/experiment-design.md` for the protocol and acceptance gates and
-`docs/deployment.md` for the cloud-host runbook.
-
-## Author and maintainer
-
-[Erictianyufan](https://github.com/Erictianyufan) is the project author and
-maintainer. Contributions and reproducible issue reports are welcome.
+No project license has been selected yet. Until a `LICENSE` file is added, the
+repository is source-visible but does not grant general reuse, modification, or
+redistribution rights. Upstream code, models, and assets remain subject to their
+own licenses and terms.

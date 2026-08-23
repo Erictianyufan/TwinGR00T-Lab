@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible problem in the experiment harness or documentation
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, tokens, private URLs, or temporary authorization codes.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime track
+      options:
+        - Dependency-light Python tests
+        - Strict Isaac Sim 5.1 track
+        - Isaac Sim 6 migration track
+        - GR00T policy environment
+        - Documentation only
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction command
+      description: Include the smallest command and inputs that reproduce the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and hardware
+      description: Include commit, OS, Python, simulator, GPU, and driver when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and manifests
+      description: Paste sanitized excerpts or link to non-sensitive evidence.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials and private data from this report.
+          required: true
+        - label: I identified whether actions came from replay, a script, or a learned policy.
+          required: true
+

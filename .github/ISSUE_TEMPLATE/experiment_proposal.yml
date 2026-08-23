@@ -1,0 +1,44 @@
+name: Experiment proposal
+description: Propose a task, policy, baseline, or simulator study with measurable gates
+title: "[Experiment]: "
+labels:
+  - experiment
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      description: State the comparison or hypothesis in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: conditions
+    attributes:
+      label: Conditions and controls
+      description: List tasks, controllers, data splits, seeds, prompts, and baselines.
+    validations:
+      required: true
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Acceptance metrics
+      description: Define success, safety, physics, latency, and statistical gates before running.
+    validations:
+      required: true
+  - type: textarea
+    id: resources
+    attributes:
+      label: Runtime and resources
+      description: State simulator version, robot, GPU requirements, data, models, and expected artifacts.
+    validations:
+      required: true
+  - type: checkboxes
+    id: claims
+    attributes:
+      label: Claim discipline
+      options:
+        - label: The proposal distinguishes replay, scripted control, and learned-policy inference.
+          required: true
+        - label: The proposal uses episode-disjoint evaluation data where learning is involved.
+          required: true
+

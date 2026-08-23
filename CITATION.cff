@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use TwinGR00T Lab, please cite the software using this metadata."
+title: "TwinGR00T Lab: Reproducible GR00T N1.7 experiments on RoboTwin 2.0 and Isaac Lab"
+type: software
+authors:
+  - given-names: Fanyu
+    family-names: Tian
+    alias: Erictianyufan
+version: 0.1.0
+repository-code: "https://github.com/Erictianyufan/TwinGR00T-Lab"
+url: "https://github.com/Erictianyufan/TwinGR00T-Lab"
+keywords:
+  - vision-language-action
+  - robot learning
+  - bimanual manipulation
+  - Isaac Lab
+  - RoboTwin
+  - GR00T
+
