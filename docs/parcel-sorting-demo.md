@@ -1,44 +1,53 @@
-# Isaac warehouse parcel-sorting demo
+# Isaac warehouse contact-physics parcel demo
 
-This presentation demo places the ALOHA bimanual workcell inside the Isaac
-Digital Twin Warehouse and references an official Isaac conveyor asset. Three
-visible parcel models travel along the belt, enter the two-arm workspace, and
-are delivered to priority and standard bins. The third parcel includes a
-left-to-right cooperative handoff.
+This verified presentation places the ALOHA bimanual workcell inside the Isaac
+Digital Twin Warehouse and references an official Isaac conveyor asset as scene
+context. Three visible parcel rigid bodies are picked, transported, routed to
+marked destinations, released, and allowed to settle under PhysX.
 
-The first implementation intentionally separates visual validation from policy
-claims:
+The execution contract is deliberately strict:
 
-- the robot uses a successful recorded RoboTwin bimanual action sequence;
-- recorded actions are continuously resampled and temporally filtered instead
-  of snapped to integer source frames;
-- parcel paths are deterministic, continuous showcase choreography attached to
-  a cached two-pass end-effector trace;
-- inter-arm handoff follows a smooth raised arc and bin placement follows a
-  lift-transfer-lower clearance path;
-- package decoration uses parent-local transforms, preventing child geometry
-  from receiving the package world offset twice;
-- the referenced conveyor is an Isaac production visual asset, but this version
-  does not claim surface-velocity conveyor dynamics;
-- the renderer writes these execution modes into the JSON manifest.
+- parcels retain the RoboTwin task's dynamic rigid-body, collision, friction,
+  mass, and gravity configuration;
+- parcel world poses are written only during initial-state restoration and are
+  never animated during the replay;
+- grasping uses native collision and friction between the parcels and four
+  ALOHA finger bodies, with no fixed joint or scripted attachment;
+- actions are continuously resampled from a successful recorded RoboTwin
+  sequence;
+- success-triggered environment auto-reset is disabled, allowing the final
+  grasp to finish its release and settling tail without a robot pose jump;
+- five cameras show the overall workcell, front view, head view, and both wrist
+  views, with live filtered contact-force diagnostics;
+- the adjacent trace stores object motion, true wrist poses, and filtered
+  per-hand contact forces for independent review.
 
-This makes the video reproducible and visually inspectable before adding an
-operational-space controller, contact-based grasp attachment, conveyor
-OmniGraph, and GR00T policy inference.
+The verified run passes all three grasp checks. Peak filtered forces are
+151–160 N, lifts are 8.0–8.6 cm, maximum gripper-local translation drift is
+4.4 mm, and the released objects finish below 0.14 mm/s linear speed. The
+controller is recorded RoboTwin joint and gripper targets; this artifact does
+not claim GR00T inference or conveyor surface-velocity physics.
 
 ## Render command
 
 ```bash
 source /home/ubuntu/env_robotwin/bin/activate
-python scripts/parcel_sorting_demo.py \
-  vendor/RoboTwin/data/blocks_ranking_rgb/data/demo_0.hdf5 \
-  --output artifacts/videos/parcel_sorting_demo_v1.mp4 \
+python scripts/parcel_sorting_physics_demo.py \
+  vendor/RoboTwin/data/blocks_ranking_rgb_posefix/data/demo_0.hdf5 \
+  --output artifacts/videos/parcel_sorting_physics_verified.mp4 \
   --headless --device cuda:0 --rendering_mode quality \
   --environment manip_eval_tasks.examples.manipulation.blocks_ranking_rgb_environment:BlocksRankingRgbEnvironment \
   blocks_ranking_rgb --embodiment aloha --enable_cameras True
 ```
 
-The expected output is a 14-second, five-camera H.264 video plus an adjacent
-JSON manifest naming the exact warehouse and conveyor USD paths. The manifest
-also rejects runs with a parcel translation above 0.05 m per output frame or a
-parcel height below 0.70 m, and records the exact worst frame for review.
+The output is an 11-second, five-camera H.264 video, an adjacent JSON manifest,
+and a compressed `.trace.npz`. A run fails unless every parcel has finger
+contact, a meaningful lift, a continuous held interval, no more than 2.5 cm of
+gripper-local relative translation drift, and low linear/angular velocity after
+release. The checked artifact is substantially tighter than that limit.
+
+## Legacy comparison
+
+`scripts/parcel_sorting_demo.py` is retained only as the earlier deterministic
+visualization. It writes parcel poses along authored paths and must not be used
+as evidence of physical grasping.

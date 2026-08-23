@@ -9,7 +9,7 @@ multi-camera digital-twin demos.
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-5.1-76B900?logo=nvidia&logoColor=white)](docs/deployment.md)
-[![Tests](https://img.shields.io/badge/tests-39%20passed-2EA44F)](tests)
+[![Tests](https://img.shields.io/badge/tests-34%20passed-2EA44F)](tests)
 [![Maintainer](https://img.shields.io/badge/maintainer-%40Erictianyufan-181717?logo=github)](https://github.com/Erictianyufan)
 
 <img src="docs/media/parcel_sorting.gif" alt="Isaac warehouse bimanual parcel sorting" width="900" />
@@ -87,17 +87,23 @@ paired with a JSON manifest on the experiment host.
 
 ## Warehouse parcel-sorting showcase
 
-`scripts/parcel_sorting_demo.py` loads the Isaac Digital Twin Warehouse and an
-official conveyor asset, then presents a continuous three-parcel, two-bin ALOHA
-sorting sequence with a cooperative handoff. The first version uses recorded
-successful bimanual actions plus explicitly labelled deterministic parcel
-choreography; it does not claim GR00T inference or conveyor surface physics.
-See [`docs/parcel-sorting-demo.md`](docs/parcel-sorting-demo.md).
+`scripts/parcel_sorting_physics_demo.py` is the verified renderer. It keeps all
+three parcels as dynamic PhysX rigid bodies and transports them only through
+ALOHA finger collision and friction: there are no per-frame parcel pose writes
+and no fixed-joint attachment. The five-camera recording exposes filtered
+finger contact forces, while its manifest verifies lift, continuous contact,
+gripper-local relative-pose drift, and post-release stability for every parcel.
 
-The current renderer uses continuous action resampling, temporally filtered
-joint targets, a cached two-pass end-effector trace, and lift-transfer-lower
-placement paths. Every recording writes a motion-validation manifest so a
-single-frame parcel jump or below-workcell excursion fails the run.
+The renderer disables the source task's success-triggered auto-reset so the
+third grasp runs through its recorded release instead of snapping the robot
+back to its initial pose. The checked run lifted all parcels by about 8 cm,
+kept local translation drift below 4.4 mm, and settled with sub-millimetre per
+second linear speed. It uses recorded successful RoboTwin joint/gripper targets
+and does not claim GR00T inference or conveyor surface physics. See
+[`docs/parcel-sorting-demo.md`](docs/parcel-sorting-demo.md).
+
+`scripts/parcel_sorting_demo.py` remains as a clearly labelled legacy
+kinematic presentation renderer for comparison.
 
 ## Local checks
 
