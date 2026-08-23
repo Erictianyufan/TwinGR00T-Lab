@@ -139,3 +139,61 @@ def smooth_sequence(values: np.ndarray, radius: int = 5) -> np.ndarray:
         [np.convolve(padded[:, channel], kernel, mode="valid") for channel in range(values.shape[1])],
         axis=1,
     )
+
+
+def evaluate_conveyor_feed(
+    positions: np.ndarray,
+    linear_velocities: np.ndarray,
+    target_positions: np.ndarray,
+    manipulation_start_frame: int,
+    *,
+    minimum_transport_m: float = 0.35,
+    minimum_peak_speed_m_s: float = 0.05,
+    maximum_arrival_error_m: float = 0.025,
+    maximum_lateral_drift_m: float = 0.015,
+    maximum_handoff_speed_m_s: float = 0.05,
+) -> dict[str, object]:
+    """Validate traction-driven conveyor arrival before manipulation starts."""
+    positions = np.asarray(positions, dtype=float)
+    linear_velocities = np.asarray(linear_velocities, dtype=float)
+    target_positions = np.asarray(target_positions, dtype=float)
+    if positions.ndim != 3 or positions.shape[-1] != 3:
+        raise ValueError("positions must have shape (frames, parcels, 3)")
+    if linear_velocities.shape != positions.shape:
+        raise ValueError("linear_velocities must match positions")
+    if target_positions.shape != positions.shape[1:]:
+        raise ValueError("target_positions must have shape (parcels, 3)")
+    if not 0 < manipulation_start_frame < len(positions):
+        raise ValueError("manipulation_start_frame must be inside the trace")
+
+    arrival = positions[manipulation_start_frame]
+    transport = positions[0, :, 0] - arrival[:, 0]
+    arrival_error = np.linalg.norm(arrival[:, :2] - target_positions[:, :2], axis=-1)
+    lateral_drift = np.abs(arrival[:, 1] - positions[0, :, 1])
+    speed = np.linalg.norm(linear_velocities, axis=-1)
+    peak_feed_speed = np.max(speed[:manipulation_start_frame], axis=0)
+    handoff_speed = speed[manipulation_start_frame]
+    parcel_pass = (
+        (transport >= minimum_transport_m)
+        & (peak_feed_speed >= minimum_peak_speed_m_s)
+        & (arrival_error <= maximum_arrival_error_m)
+        & (lateral_drift <= maximum_lateral_drift_m)
+        & (handoff_speed <= maximum_handoff_speed_m_s)
+    )
+    return {
+        "pass": bool(np.all(parcel_pass)),
+        "transport_distance_m": transport.tolist(),
+        "peak_feed_speed_m_s": peak_feed_speed.tolist(),
+        "arrival_error_m": arrival_error.tolist(),
+        "lateral_drift_m": lateral_drift.tolist(),
+        "handoff_speed_m_s": handoff_speed.tolist(),
+        "parcel_pass": parcel_pass.tolist(),
+        "manipulation_start_frame": int(manipulation_start_frame),
+        "thresholds": {
+            "minimum_transport_m": minimum_transport_m,
+            "minimum_peak_speed_m_s": minimum_peak_speed_m_s,
+            "maximum_arrival_error_m": maximum_arrival_error_m,
+            "maximum_lateral_drift_m": maximum_lateral_drift_m,
+            "maximum_handoff_speed_m_s": maximum_handoff_speed_m_s,
+        },
+    }

@@ -6,6 +6,7 @@ from twingr00t_lab.parcel_sorting import (
     ParcelSortingTimeline,
     arched_transfer,
     clearance_transfer,
+    evaluate_conveyor_feed,
     interpolate,
     smooth_sequence,
     smoothstep,
@@ -74,3 +75,20 @@ def test_arched_transfer_has_fixed_endpoints_and_positive_clearance() -> None:
     np.testing.assert_allclose(arched_transfer(start, end, 1.0), end)
     midpoint = arched_transfer(start, end, 0.5, arc_height=0.2)
     np.testing.assert_allclose(midpoint, (0.0, 0.0, 1.1))
+
+
+def test_conveyor_feed_requires_transport_arrival_and_stable_handoff() -> None:
+    frames = 80
+    targets = np.asarray(((-0.25, 0.02, 0.765), (0.06, -0.01, 0.765)))
+    positions = np.repeat(targets[None, ...], frames, axis=0)
+    positions[:, :, 0] += np.linspace(0.60, 0.0, frames)[:, None]
+    velocities = np.zeros_like(positions)
+    velocities[:-5, :, 0] = -0.25
+    result = evaluate_conveyor_feed(positions, velocities, targets, frames - 1)
+    assert result["pass"] is True
+    assert all(value >= 0.59 for value in result["transport_distance_m"])
+
+    positions[-1, 0, 1] += 0.04
+    failed = evaluate_conveyor_feed(positions, velocities, targets, frames - 1)
+    assert failed["pass"] is False
+    assert failed["parcel_pass"] == [False, True]

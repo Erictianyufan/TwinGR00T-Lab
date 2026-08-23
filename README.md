@@ -88,25 +88,28 @@ paired with a JSON manifest on the experiment host.
 ## Warehouse parcel-sorting showcase
 
 `scripts/parcel_sorting_physics_demo.py` is the verified renderer. It keeps all
-three parcels as dynamic PhysX rigid bodies and transports them only through
-ALOHA finger collision and friction: there are no per-frame parcel pose writes
-and no fixed-joint attachment. The five-camera recording exposes filtered
-finger contact forces, while its manifest verifies lift, continuous contact,
-gripper-local relative-pose drift, and post-release stability for every parcel.
+three parcels as dynamic PhysX rigid bodies throughout one continuous flow:
+a closed-loop tangential traction model moves them 0.41 m along the visible
+feed belt, they stop at the pickup positions, and ALOHA sorts them through
+finger collision and friction. There are no per-frame parcel pose writes and
+no fixed-joint attachments. The five-camera recording exposes the feed phase
+and filtered finger contacts, while its manifest verifies conveyor arrival,
+lift, continuous contact, gripper-local drift, and post-release stability.
 
 The visible set uses the official Isaac Simple Warehouse, conveyor, pallet, and
 cardboard-box assets, plus a camera-safe storage rack around the compact
 RoboTwin workcell. Set-dressing collisions and rigid bodies are disabled so the
 warehouse remains visible without changing parcel or gripper physics.
-A compact feed conveyor with belt, safety rails, support legs, lane markers,
-and staged cartons is kept fully visible in the overall camera.
+A compact feed conveyor with a dark belt, safety rails, support legs, lane
+markers, and the three moving parcels is kept visible in the overall camera.
 
 The renderer disables the source task's success-triggered auto-reset so the
 third grasp runs through its recorded release instead of snapping the robot
-back to its initial pose. The checked run lifted all parcels by about 8 cm,
-kept local translation drift below 4.4 mm, and settled with sub-millimetre per
-second linear speed. It uses recorded successful RoboTwin joint/gripper targets
-and does not claim GR00T inference or conveyor surface physics. See
+back to its initial pose. The checked run transported every parcel about
+0.414 m, arrived within 5.9 mm, lifted all parcels by 7.9–8.7 cm, kept grasp
+relative drift below 5.7 mm, and settled below 0.08 mm/s. It uses recorded
+successful RoboTwin joint/gripper targets and does not claim GR00T inference
+or native surface-velocity physics. See
 [`docs/parcel-sorting-demo.md`](docs/parcel-sorting-demo.md).
 
 `scripts/parcel_sorting_demo.py` remains as a clearly labelled legacy

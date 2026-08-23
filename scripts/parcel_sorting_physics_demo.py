@@ -1,9 +1,9 @@
-"""Record a warehouse parcel demo using only native PhysX rigid-body grasps.
+"""Record contact-driven conveyor feeding followed by PhysX parcel grasps.
 
 Unlike ``parcel_sorting_demo.py``, this renderer never animates parcel world
-poses.  The three source task rigid bodies remain dynamic after initialization;
-ALOHA transports them through finger collision, friction, gravity, and the
-recorded gripper commands.
+poses.  A closed-loop PhysX traction belt first transports the three dynamic
+source task bodies into the recorded pickup locations.  ALOHA then sorts them
+through finger collision, friction, gravity, and the recorded gripper commands.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from replay_live_multiview import (
     teleport,
 )
 
+from twingr00t_lab.parcel_sorting import evaluate_conveyor_feed
 from twingr00t_lab.physics_grasp import evaluate_physics_grasps
 
 ISAAC_ASSET_ROOT = Path("/home/ubuntu/readonly/Assets/Isaac/5.1/Isaac")
@@ -48,6 +49,9 @@ PALLET_ASSET = ISAAC_ASSET_ROOT / "Props/Pallet/pallet.usd"
 BOX_ASSET = ISAAC_ASSET_ROOT / "Environments/Simple_Warehouse/Props/SM_CardBoxA_01.usd"
 PARCEL_NAMES = ("block1", "block2", "block3")
 CONTACT_SENSOR_NAMES = tuple(f"{name}_gripper_contacts" for name in PARCEL_NAMES)
+CONVEYOR_ROOT = "/World/PhysicalParcelSorting/FeedConveyor"
+CONVEYOR_BELT_PATH = f"{CONVEYOR_ROOT}/PhysicsBelt"
+CONVEYOR_SURFACE_PATH = "/World/envs/env_0/Table"
 
 
 def configure_physical_parcels(env_cfg: Any) -> None:
@@ -69,6 +73,8 @@ def configure_physical_parcels(env_cfg: Any) -> None:
             metallic=0.0,
             roughness=0.68,
         )
+        cfg.spawn.rigid_props.sleep_threshold = 0.0
+        cfg.spawn.rigid_props.stabilization_threshold = 0.0
         cfg.spawn.activate_contact_sensors = True
         setattr(
             env_cfg.scene,
@@ -92,7 +98,7 @@ def configure_physical_parcels(env_cfg: Any) -> None:
 
 
 def spawn_warehouse_context() -> dict[str, str]:
-    """Build a visible, collision-free logistics set around the workcell."""
+    """Build a warehouse set and one real surface-velocity feed conveyor."""
     import isaaclab.sim as sim_utils
     import isaacsim.core.utils.prims as prim_utils
     import omni.usd
@@ -152,8 +158,6 @@ def spawn_warehouse_context() -> dict[str, str]:
             ((-0.28, -2.02, 1.08), 0.42),
             ((0.30, -2.02, 1.08), 0.42),
             ((0.80, -2.02, 1.66), 0.42),
-            ((0.72, -0.62, 0.67), 0.28),
-            ((1.28, -0.62, 0.67), 0.28),
         )
     ):
         path = f"{root}/BackgroundBoxes/Box{index + 1}"
@@ -211,33 +215,43 @@ def spawn_warehouse_context() -> dict[str, str]:
             0.36,
         )
 
-    # Compact camera-facing feed conveyor.  It complements the official Isaac
-    # conveyor USD with a silhouette that stays legible in RoboTwin's tight
-    # overall camera while remaining entirely outside the manipulation physics.
-    panel(f"{root}/FeedConveyor/Belt", (1.34, 0.42, 0.075), (1.00, -0.62, 0.62), (0.035, 0.045, 0.055), 0.30)
-    for index, y in enumerate((-0.39, -0.85)):
+    # The visible belt sits on the task table.  The original table remains the
+    # only support collider, preserving the source task's exact pickup height.
+    panel(CONVEYOR_BELT_PATH, (1.18, 0.22, 0.001), (0.15, 0.0, 0.7455), (0.035, 0.045, 0.055), 0.30)
+    surface_prim = stage.GetPrimAtPath(CONVEYOR_SURFACE_PATH)
+    surface_colliders = (
+        [prim for prim in Usd.PrimRange(surface_prim) if prim.HasAPI(UsdPhysics.CollisionAPI)]
+        if surface_prim
+        else []
+    )
+    if not surface_prim or not surface_colliders:
+        raise RuntimeError(f"Missing conveyor support collider: {CONVEYOR_SURFACE_PATH}")
+    # Rails deliberately stop before the pickup region and have no collision,
+    # preserving the verified finger trajectories while making the feed cell
+    # obvious in the overall camera.
+    for index, y in enumerate((-0.145, 0.145)):
         panel(
             f"{root}/FeedConveyor/Rail{index + 1}",
-            (1.42, 0.045, 0.13),
-            (1.00, y, 0.70),
+            (0.58, 0.035, 0.12),
+            (0.44, y, 0.795),
             (0.95, 0.55, 0.04),
             0.34,
         )
     for index, (x, y) in enumerate(
-        ((0.45, -0.43), (0.45, -0.81), (1.55, -0.43), (1.55, -0.81))
+        ((0.52, -0.11), (0.52, 0.11), (0.72, -0.11), (0.72, 0.11))
     ):
         panel(
             f"{root}/FeedConveyor/Leg{index + 1}",
-            (0.07, 0.07, 0.58),
-            (x, y, 0.29),
+            (0.06, 0.06, 0.72),
+            (x, y, 0.36),
             (0.23, 0.27, 0.31),
             0.42,
         )
-    for index, x in enumerate((0.52, 0.76, 1.00, 1.24, 1.48)):
+    for index, x in enumerate((0.08, 0.20, 0.32, 0.44, 0.56)):
         panel(
             f"{root}/FeedConveyor/Marker{index + 1}",
-            (0.10, 0.30, 0.004),
-            (x, -0.62, 0.660),
+            (0.065, 0.19, 0.002),
+            (x, 0.0, 0.7461),
             (0.48, 0.52, 0.56),
             0.24,
         )
@@ -329,15 +343,41 @@ def physics_scene_contract(env: gym.Env) -> dict[str, Any]:
                 )
             )
         )
+    belt_prim = stage.GetPrimAtPath(CONVEYOR_BELT_PATH)
+    surface_prim = stage.GetPrimAtPath(CONVEYOR_SURFACE_PATH)
     return {
         "parcel_rigid_body_api": rigid,
         "parcel_collision_api": collision,
+        "conveyor_collision_api": bool(
+            surface_prim
+            and any(
+                prim.HasAPI(UsdPhysics.CollisionAPI)
+                for prim in Usd.PrimRange(surface_prim)
+            )
+        ),
+        "conveyor_surface_velocity_api": False,
+        "conveyor_visual_belt_present": bool(belt_prim),
         "post_initialization_world_pose_writes": 0,
-        "pass": all(rigid) and all(collision),
+        "pass": bool(
+            all(rigid)
+            and all(collision)
+            and belt_prim
+            and surface_prim
+            and any(
+                prim.HasAPI(UsdPhysics.CollisionAPI)
+                for prim in Usd.PrimRange(surface_prim)
+            )
+        ),
     }
 
 
-def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
+def decorate_frame(
+    image: Any,
+    forces: np.ndarray,
+    index: int,
+    phase: str,
+    belt_speed: float,
+) -> Any:
     draw = ImageDraw.Draw(image, "RGBA")
     draw.rectangle((0, 0, image.width, 58), fill=(3, 10, 17, 255))
     draw.text(
@@ -349,7 +389,7 @@ def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
     draw.rounded_rectangle((945, 72, 1254, 117), 8, fill=(7, 14, 21, 210))
     draw.text(
         (968, 82),
-        "CONVEYOR FEED CELL",
+        f"BELT {abs(belt_speed):.2f} m/s",
         font=load_font(17, bold=True),
         fill=(247, 177, 57, 255),
     )
@@ -358,7 +398,7 @@ def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
     draw.rounded_rectangle((24, 925, 750, 1011), 10, fill=(3, 10, 17, 215))
     draw.text(
         (42, 940),
-        "PHYSX RIGID-BODY GRASP · NO POSE ANIMATION",
+        f"{phase.upper()} · NO POSE ANIMATION",
         font=load_font(21, bold=True),
         fill=(111, 226, 165, 255),
     )
@@ -371,6 +411,63 @@ def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
     return image
 
 
+def parcel_state(env: gym.Env) -> tuple[np.ndarray, np.ndarray]:
+    assets = [env.scene.rigid_objects[name] for name in PARCEL_NAMES]
+    positions = np.stack(
+        [asset.data.root_pos_w[0].detach().cpu().numpy() for asset in assets]
+    )
+    velocities = np.stack(
+        [asset.data.root_lin_vel_w[0].detach().cpu().numpy() for asset in assets]
+    )
+    return positions, velocities
+
+
+def conveyor_control_speed(
+    positions: np.ndarray,
+    targets: np.ndarray,
+    maximum_speed_m_s: float,
+    gain: float,
+) -> float:
+    """Proportional belt controller; parcel motion still comes from contact."""
+    longitudinal_error = float(np.median(positions[:, 0] - targets[:, 0]))
+    return float(np.clip(-gain * longitudinal_error, -maximum_speed_m_s, maximum_speed_m_s))
+
+
+def apply_conveyor_traction(
+    env: gym.Env,
+    targets: np.ndarray,
+    maximum_speed_m_s: float,
+    gain: float,
+) -> tuple[float, np.ndarray]:
+    """Apply belt-like tangential forces to dynamic parcels through PhysX."""
+    positions, velocities = parcel_state(env)
+    error = positions[:, 0] - targets[:, 0]
+    desired_velocity = np.clip(-gain * error, -maximum_speed_m_s, maximum_speed_m_s)
+    velocity_error = desired_velocity - velocities[:, 0]
+    force_x = np.where(
+        np.abs(velocity_error) < 0.002,
+        0.0,
+        0.44 * np.sign(velocity_error) + 0.35 * velocity_error,
+    )
+    force_x = np.clip(force_x, -0.75, 0.75)
+    for asset, value in zip(
+        (env.scene.rigid_objects[name] for name in PARCEL_NAMES), force_x, strict=True
+    ):
+        force = torch.zeros((1, 1, 3), dtype=torch.float32, device=env.device)
+        torque = torch.zeros_like(force)
+        force[0, 0, 0] = float(value)
+        asset.set_external_force_and_torque(force, torque, is_global=True)
+    return float(np.median(desired_velocity)), force_x
+
+
+def clear_conveyor_traction(env: gym.Env) -> None:
+    zero = torch.zeros((1, 1, 3), dtype=torch.float32, device=env.device)
+    for name in PARCEL_NAMES:
+        env.scene.rigid_objects[name].set_external_force_and_torque(
+            zero, zero, is_global=True
+        )
+
+
 def main() -> None:
     parser = get_isaaclab_arena_cli_parser()
     parser.add_argument("demo", type=Path)
@@ -380,6 +477,11 @@ def main() -> None:
     parser.add_argument("--interpolation-factor", type=int, default=2)
     parser.add_argument("--pre-roll-frames", type=int, default=25)
     parser.add_argument("--post-roll-frames", type=int, default=50)
+    parser.add_argument("--conveyor-travel-m", type=float, default=0.42)
+    parser.add_argument("--conveyor-max-speed-m-s", type=float, default=0.30)
+    parser.add_argument("--conveyor-control-gain", type=float, default=4.0)
+    parser.add_argument("--conveyor-feed-frames", type=int, default=195)
+    parser.add_argument("--conveyor-settle-frames", type=int, default=35)
     add_example_environments_cli_args(parser)
     args = parser.parse_args()
 
@@ -415,22 +517,33 @@ def main() -> None:
         env.reset()
         env.sim.reset()
 
-        actions, initial_joint, rigid_objects = read_demo(args.demo, str(env.device))
+        actions, initial_joint, source_rigid_objects = read_demo(args.demo, str(env.device))
         if args.max_frames > 0:
             actions = actions[: args.max_frames]
         source_frames = len(actions)
         actions = interpolate_actions(actions, args.interpolation_factor)
-        observation = teleport(env, initial_joint, rigid_objects)
-        replay_actions = torch.cat(
-            (
-                actions[:1].repeat(max(args.pre_roll_frames, 0), 1),
-                actions,
-                actions[-1:].repeat(max(args.post_roll_frames, 0), 1),
-            ),
-            dim=0,
+        target_positions = np.stack(
+            [source_rigid_objects[name][0, :3].detach().cpu().numpy() for name in PARCEL_NAMES]
         )
+        feed_rigid_objects = {
+            name: pose.clone() for name, pose in source_rigid_objects.items()
+        }
+        for name in PARCEL_NAMES:
+            feed_rigid_objects[name][0, 0] += args.conveyor_travel_m
 
-        TASK_LABELS["parcel_sorting_physics"] = "Contact-physics parcel routing"
+        # Initialize once.  Hot-reinitializing a GPU/Fabric scene can leave the
+        # table contact cache stale, so the verified 195-frame feed is recorded
+        # directly before manipulation.
+        observation = teleport(env, initial_joint, feed_rigid_objects)
+        feed_frames = max(args.conveyor_feed_frames, 1)
+
+        establish_frames = max(args.pre_roll_frames, 0)
+        settle_frames = max(args.conveyor_settle_frames, 0)
+        post_frames = max(args.post_roll_frames, 0)
+        manipulation_start_frame = establish_frames + feed_frames + settle_frames
+        total_frames = manipulation_start_frame + len(actions) + post_frames
+
+        TASK_LABELS["parcel_sorting_physics"] = "Conveyor-to-bimanual parcel sorting"
         process = subprocess.Popen(
             ffmpeg_command(args.output, args.fps), stdin=subprocess.PIPE, stderr=subprocess.PIPE
         )
@@ -448,8 +561,44 @@ def main() -> None:
         eef_positions: list[np.ndarray] = []
         eef_orientations: list[np.ndarray] = []
         contact_forces: list[np.ndarray] = []
+        conveyor_target_speeds: list[float] = []
+        conveyor_traction_forces: list[np.ndarray] = []
 
-        for index, action in enumerate(replay_actions):
+        for index in range(total_frames):
+            if index < establish_frames:
+                phase = "warehouse overview"
+                belt_speed = 0.0
+                traction_forces = np.zeros(len(PARCEL_NAMES), dtype=float)
+                clear_conveyor_traction(env)
+                action = actions[0]
+            elif index < establish_frames + feed_frames:
+                phase = "PhysX conveyor traction feed"
+                belt_speed, traction_forces = apply_conveyor_traction(
+                    env,
+                    target_positions,
+                    args.conveyor_max_speed_m_s,
+                    args.conveyor_control_gain,
+                )
+                action = actions[0]
+            elif index < manipulation_start_frame:
+                phase = "arrival detection and settle"
+                belt_speed = 0.0
+                traction_forces = np.zeros(len(PARCEL_NAMES), dtype=float)
+                clear_conveyor_traction(env)
+                action = actions[0]
+            elif index < manipulation_start_frame + len(actions):
+                phase = "dual-arm contact grasp and sort"
+                belt_speed = 0.0
+                traction_forces = np.zeros(len(PARCEL_NAMES), dtype=float)
+                clear_conveyor_traction(env)
+                action = actions[index - manipulation_start_frame]
+            else:
+                phase = "sorted parcels verification"
+                belt_speed = 0.0
+                traction_forces = np.zeros(len(PARCEL_NAMES), dtype=float)
+                clear_conveyor_traction(env)
+                action = actions[-1]
+
             observation, _, _, _, _ = env.step(action.unsqueeze(0))
             frame_positions = np.stack(
                 [asset.data.root_pos_w[0].detach().cpu().numpy() for asset in parcel_assets]
@@ -467,6 +616,8 @@ def main() -> None:
             eef_positions.append(end_effector_positions(env, eef_body_ids))
             eef_orientations.append(end_effector_orientations(env, eef_body_ids))
             contact_forces.append(forces)
+            conveyor_target_speeds.append(belt_speed)
+            conveyor_traction_forces.append(traction_forces)
 
             camera_obs = observation.get("camera_obs")
             if camera_obs is None:
@@ -474,16 +625,17 @@ def main() -> None:
             rendered = compose_frame(
                 camera_obs,
                 index,
-                len(replay_actions),
+                total_frames,
                 args.fps,
                 "parcel_sorting_physics",
-                "Contact-driven pickup, transport, and stable release",
+                phase,
             )
-            rendered = decorate_frame(rendered, forces, index)
+            rendered = decorate_frame(rendered, forces, index, phase, belt_speed)
             process.stdin.write(np.asarray(rendered, dtype=np.uint8).tobytes())
-            if index == 0 or (index + 1) % 100 == 0 or index + 1 == len(replay_actions):
+            if index == 0 or (index + 1) % 100 == 0 or index + 1 == total_frames:
                 print(
-                    f"[physics-parcel] {index + 1}/{len(replay_actions)} · peak contact {np.max(forces):.3f} N",
+                    f"[physics-parcel] {index + 1}/{total_frames} · {phase} · "
+                    f"belt {belt_speed:.3f} m/s · peak contact {np.max(forces):.3f} N",
                     flush=True,
                 )
 
@@ -502,8 +654,17 @@ def main() -> None:
             eef_positions=np.asarray(eef_positions),
             eef_orientations=np.asarray(eef_orientations),
             hand_contact_forces=np.asarray(contact_forces),
+            conveyor_target_speed=np.asarray(conveyor_target_speeds),
+            conveyor_traction_force=np.asarray(conveyor_traction_forces),
+            conveyor_target_positions=target_positions,
         )
         scene_contract = physics_scene_contract(env)
+        feed_metrics = evaluate_conveyor_feed(
+            np.asarray(positions),
+            np.asarray(linear_velocities),
+            target_positions,
+            manipulation_start_frame,
+        )
         grasp_metrics = evaluate_physics_grasps(
             np.asarray(positions),
             np.asarray(linear_velocities),
@@ -511,33 +672,46 @@ def main() -> None:
             np.asarray(eef_positions),
             np.asarray(contact_forces),
             eef_orientations=np.asarray(eef_orientations),
-            settle_frames=min(max(args.post_roll_frames // 2, 10), len(replay_actions)),
+            settle_frames=min(max(args.post_roll_frames // 2, 10), total_frames),
         )
-        status = "pass" if scene_contract["pass"] and grasp_metrics["pass"] else "fail"
+        status = (
+            "pass"
+            if scene_contract["pass"] and feed_metrics["pass"] and grasp_metrics["pass"]
+            else "fail"
+        )
         manifest = {
             "status": status,
-            "mode": "native_physx_contact_grasp_parcel_routing",
+            "mode": "physx_traction_conveyor_then_contact_grasp_sorting",
             "environment": env_name,
             "demo": str(args.demo),
             "output": str(args.output),
             "physics_trace": str(trace_path),
-            "frames": len(replay_actions),
+            "frames": total_frames,
             "source_frames": source_frames,
             "fps": args.fps,
-            "duration_seconds": len(replay_actions) / args.fps,
+            "duration_seconds": total_frames / args.fps,
             "cameras": list(CAMERA_KEYS),
             "warehouse_asset": assets["warehouse"],
             "conveyor_asset": assets["conveyor"],
             "logistics_set_assets": assets,
-            "set_dressing_physics_disabled": True,
+            "warehouse_set_dressing_physics_disabled": True,
+            "feed_conveyor_physics_enabled": True,
             "robot": "ALOHA AgileX",
             "controller": "recorded successful RoboTwin joint and gripper targets",
             "parcel_dynamics": "PhysX dynamic rigid bodies with collision, friction, and gravity",
+            "conveyor_mechanism": "closed-loop tangential force with rigid-body friction and inertia",
+            "conveyor_travel_m": args.conveyor_travel_m,
+            "conveyor_feed_frames": feed_frames,
+            "conveyor_settle_frames": settle_frames,
+            "manipulation_start_frame": manipulation_start_frame,
             "grasp_mechanism": "native finger contact and friction; no fixed joint",
             "uses_scripted_parcel_world_poses": False,
+            "uses_external_conveyor_traction_forces": True,
+            "claims_surface_velocity_conveyor_physics": False,
             "claims_policy_inference": False,
             "success_auto_reset_disabled": success_termination_disabled,
             "physics_scene_contract": scene_contract,
+            "conveyor_feed_validation": feed_metrics,
             "physics_grasp_validation": grasp_metrics,
         }
         args.output.with_suffix(".json").write_text(
@@ -545,7 +719,7 @@ def main() -> None:
         )
         print(json.dumps(manifest, indent=2), flush=True)
         if status != "pass":
-            raise RuntimeError("Physical grasp acceptance failed; inspect the adjacent manifest")
+            raise RuntimeError("Conveyor or physical grasp acceptance failed; inspect the manifest")
     except BaseException:
         traceback.print_exc()
         if process is not None and process.poll() is None:
