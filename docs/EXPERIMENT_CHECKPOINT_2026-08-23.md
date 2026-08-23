@@ -8,11 +8,37 @@ The ALOHA-only showcase target is complete with five success-validated tasks. Ea
 |---:|---|---:|---:|---|
 | 1 | Three-bowl stacking | 600 | 19.200 s | Pass |
 | 2 | Two-bowl stacking | 376 | 7.520 s | Pass |
-| 3 | Two-block stacking | 156 | 4.992 s | Pass |
+| 3 | Two-block stacking | 386 | 7.720 s | Task pass + post-settle stability pass |
 | 4 | RGB block ranking | 239 | 7.648 s | Pass |
-| 5 | Three-block stacking | 236 | 7.552 s | Pass |
+| 5 | Three-block stacking | 552 | 11.040 s | Task pass + post-settle stability pass |
 
-The five clips are also combined into `artifacts/videos/showcase/00_bimanual_showcase_five_tasks.mp4`, a 44.92-second, 50 FPS presentation reel with 0.5-second cross-fades.
+The five clips are also combined into `artifacts/videos/showcase/00_bimanual_showcase_five_tasks.mp4`, a 51.16-second, 50 FPS presentation reel with 0.5-second cross-fades.
+
+## Block-stack stability repair
+
+The original stack predicate could pass while a released block was tilted or
+still moving. Both canonical block-stack clips now include 0.5 s pre-roll, 1.0
+s post-roll, interpolated 50 Hz action targets, and a post-settle acceptance
+gate. The two-block result finished with 10.00 mm maximum adjacent XY offset,
+upright cosine 1.0, 0.00346 m/s maximum linear speed, and 0.03802 rad/s maximum
+angular speed. The three-block result finished with 13.49 mm offset, upright
+cosine 1.0, 0.00817 m/s, and 0.04486 rad/s. Both passed the documented limits in
+`docs/block-stability.md`; the earlier canonical clips are retained only in the
+cloud artifact archive.
+
+## Warehouse parcel-sorting showcase
+
+`artifacts/videos/parcel_sorting_demo_v1.mp4` is a 420-frame, 14-second,
+1920x1080 multi-camera demonstration. It resolves the Isaac 5.1 Digital Twin
+Warehouse and `ConveyorBelt_A01.usd`, shows three parcel models, two destination
+bins, and a cooperative left-to-right transfer. The adjacent manifest labels
+the robot actions as recorded RoboTwin actions and the parcel motion as
+deterministic presentation choreography; it does not claim GR00T inference or
+surface-velocity conveyor physics.
+
+The source tree is published at
+`https://github.com/Erictianyufan/TwinGR00T-Lab` after secret scanning, 36 unit
+tests, and Ruff validation.
 
 ## Two-bowl repair
 
@@ -34,9 +60,9 @@ The converter now:
 
 Compatibility changes are preserved in `remote_overrides/record.py` and the task-specific environment overrides. The diagnostic utility is `scripts/estimate_block_initial_poses.py`.
 
-## Pause state
+## Current state
 
 - No conversion or rendering process is running.
 - Both RTX 4090 GPUs are idle.
-- All five videos, previews, JSON manifests, converted demonstrations, source archives, and logs remain on the cloud machine.
+- All five task videos, the rebuilt reel, the parcel demo, previews, JSON manifests, converted demonstrations, source archives, and logs remain on the cloud machine.
 - The humanoid/G1 branch remains intentionally paused.
