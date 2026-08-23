@@ -60,13 +60,17 @@ class ParcelSortingTimeline:
         return ParcelPhase.VERIFY
 
     def action_index(self, frame: int, action_count: int) -> int:
-        """Map the active manipulation interval monotonically onto a demo."""
+        """Return the nearest source action for compatibility callers."""
+        return round(self.action_position(frame, action_count))
+
+    def action_position(self, frame: int, action_count: int) -> float:
+        """Map a frame to a continuous source-action coordinate."""
         if action_count <= 0:
             raise ValueError("action_count must be positive")
         start = self.feed_start
         stop = self.verify_start - 1
         fraction = float(np.clip((frame - start) / max(stop - start, 1), 0.0, 1.0))
-        return min(round(fraction * (action_count - 1)), action_count - 1)
+        return fraction * (action_count - 1)
 
 
 def smoothstep(value: float) -> float:
@@ -77,4 +81,61 @@ def smoothstep(value: float) -> float:
 def interpolate(start: np.ndarray, end: np.ndarray, fraction: float) -> np.ndarray:
     return np.asarray(start, dtype=float) + smoothstep(fraction) * (
         np.asarray(end, dtype=float) - np.asarray(start, dtype=float)
+    )
+
+
+def clearance_transfer(
+    start: np.ndarray,
+    end: np.ndarray,
+    fraction: float,
+    *,
+    clearance_z: float = 1.18,
+) -> np.ndarray:
+    """Move up, translate, then lower so a parcel cannot cut through a bin."""
+    start = np.asarray(start, dtype=float)
+    end = np.asarray(end, dtype=float)
+    raised_start = start.copy()
+    raised_end = end.copy()
+    raised_start[2] = max(start[2], clearance_z)
+    raised_end[2] = max(end[2], clearance_z)
+    fraction = float(np.clip(fraction, 0.0, 1.0))
+    if fraction < 0.25:
+        return interpolate(start, raised_start, fraction / 0.25)
+    if fraction < 0.75:
+        return interpolate(raised_start, raised_end, (fraction - 0.25) / 0.5)
+    return interpolate(raised_end, end, (fraction - 0.75) / 0.25)
+
+
+def arched_transfer(
+    start: np.ndarray,
+    end: np.ndarray,
+    fraction: float,
+    *,
+    arc_height: float = 0.16,
+) -> np.ndarray:
+    """Blend an inter-arm handoff along one smooth, raised spatial arc."""
+    phase = smoothstep(fraction)
+    position = np.asarray(start, dtype=float) + phase * (
+        np.asarray(end, dtype=float) - np.asarray(start, dtype=float)
+    )
+    position[2] += max(float(arc_height), 0.0) * np.sin(np.pi * phase)
+    return position
+
+
+def smooth_sequence(values: np.ndarray, radius: int = 5) -> np.ndarray:
+    """Apply an edge-preserving triangular temporal filter to a trajectory."""
+    values = np.asarray(values, dtype=float)
+    if values.ndim != 2:
+        raise ValueError("values must have shape (frames, channels)")
+    if radius < 0:
+        raise ValueError("radius must be non-negative")
+    if radius == 0 or len(values) < 2:
+        return values.copy()
+    ascending = np.arange(1, radius + 2, dtype=float)
+    kernel = np.concatenate((ascending, ascending[-2::-1]))
+    kernel /= kernel.sum()
+    padded = np.pad(values, ((radius, radius), (0, 0)), mode="edge")
+    return np.stack(
+        [np.convolve(padded[:, channel], kernel, mode="valid") for channel in range(values.shape[1])],
+        axis=1,
     )

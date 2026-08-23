@@ -1,7 +1,33 @@
+<div align="center">
+
 # TwinGR00T Lab
 
-Reproducible RoboTwin 2.0 manipulation replay, GR00T N1.7 policy integration,
-and presentation-grade multi-camera demos in NVIDIA Isaac Lab.
+**RoboTwin 2.0 × GR00T N1.7 × NVIDIA Isaac Lab**
+
+Reproducible bimanual manipulation experiments and presentation-grade,
+multi-camera digital-twin demos.
+
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Isaac Sim](https://img.shields.io/badge/Isaac%20Sim-5.1-76B900?logo=nvidia&logoColor=white)](docs/deployment.md)
+[![Tests](https://img.shields.io/badge/tests-39%20passed-2EA44F)](tests)
+[![Maintainer](https://img.shields.io/badge/maintainer-%40Erictianyufan-181717?logo=github)](https://github.com/Erictianyufan)
+
+<img src="docs/media/parcel_sorting.gif" alt="Isaac warehouse bimanual parcel sorting" width="900" />
+
+</div>
+
+## Demo gallery
+
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>Two-bowl stacking</strong></td>
+    <td width="50%" align="center"><strong>Stable three-block stacking</strong></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/bowl_stacking.gif" alt="ALOHA bowl stacking demo" width="100%" /></td>
+    <td><img src="docs/media/three_block_stacking.gif" alt="ALOHA three-block stacking demo" width="100%" /></td>
+  </tr>
+</table>
 
 The current verified showcase focuses on ALOHA bimanual tasks. Stack demos are
 accepted only after a post-action settling window verifies that every object is
@@ -67,6 +93,11 @@ sorting sequence with a cooperative handoff. The first version uses recorded
 successful bimanual actions plus explicitly labelled deterministic parcel
 choreography; it does not claim GR00T inference or conveyor surface physics.
 See [`docs/parcel-sorting-demo.md`](docs/parcel-sorting-demo.md).
+
+The current renderer uses continuous action resampling, temporally filtered
+joint targets, a cached two-pass end-effector trace, and lift-transfer-lower
+placement paths. Every recording writes a motion-validation manifest so a
+single-frame parcel jump or below-workcell excursion fails the run.
 
 ## Local checks
 
@@ -173,3 +204,8 @@ full post-training node.
 
 See `docs/experiment-design.md` for the protocol and acceptance gates and
 `docs/deployment.md` for the cloud-host runbook.
+
+## Author and maintainer
+
+[Erictianyufan](https://github.com/Erictianyufan) is the project author and
+maintainer. Contributions and reproducible issue reports are welcome.

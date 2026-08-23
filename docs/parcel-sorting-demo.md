@@ -10,7 +10,14 @@ The first implementation intentionally separates visual validation from policy
 claims:
 
 - the robot uses a successful recorded RoboTwin bimanual action sequence;
-- parcel paths are deterministic, continuous showcase choreography;
+- recorded actions are continuously resampled and temporally filtered instead
+  of snapped to integer source frames;
+- parcel paths are deterministic, continuous showcase choreography attached to
+  a cached two-pass end-effector trace;
+- inter-arm handoff follows a smooth raised arc and bin placement follows a
+  lift-transfer-lower clearance path;
+- package decoration uses parent-local transforms, preventing child geometry
+  from receiving the package world offset twice;
 - the referenced conveyor is an Isaac production visual asset, but this version
   does not claim surface-velocity conveyor dynamics;
 - the renderer writes these execution modes into the JSON manifest.
@@ -32,4 +39,6 @@ python scripts/parcel_sorting_demo.py \
 ```
 
 The expected output is a 14-second, five-camera H.264 video plus an adjacent
-JSON manifest naming the exact warehouse and conveyor USD paths.
+JSON manifest naming the exact warehouse and conveyor USD paths. The manifest
+also rejects runs with a parcel translation above 0.05 m per output frame or a
+parcel height below 0.70 m, and records the exact worst frame for review.

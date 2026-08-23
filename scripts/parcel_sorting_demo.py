@@ -37,7 +37,14 @@ from replay_live_multiview import (
     teleport,
 )
 
-from twingr00t_lab.parcel_sorting import ParcelPhase, ParcelSortingTimeline, interpolate
+from twingr00t_lab.parcel_sorting import (
+    ParcelPhase,
+    ParcelSortingTimeline,
+    arched_transfer,
+    clearance_transfer,
+    interpolate,
+    smooth_sequence,
+)
 
 ISAAC_ASSET_ROOT = Path("/home/ubuntu/readonly/Assets/Isaac/5.1/Isaac")
 WAREHOUSE_ASSET = ISAAC_ASSET_ROOT / "Environments/Digital_Twin_Warehouse/small_warehouse_digital_twin.usd"
@@ -145,7 +152,16 @@ def spawn_warehouse_workcell() -> tuple[list[Any], dict[str, str]]:
         path = f"{root}/Packages/{name}"
         position = (-1.45 - index * 0.24, 0.38, 0.88)
         box(path, size, position, color, 0.62)
-        box(f"{path}/Tape", (size[0] * 1.02, 0.024, size[2] * 1.02), position, (0.93, 0.91, 0.82), 0.5)
+        # Tape is a child of the translated package root, so its authored
+        # transform must be parent-local.  Reusing ``position`` here applied
+        # the package world offset twice and made the visual appear to drift.
+        box(
+            f"{path}/Tape",
+            (size[0] * 1.02, 0.024, size[2] * 1.02),
+            (0.0, 0.0, 0.0),
+            (0.93, 0.91, 0.82),
+            0.5,
+        )
         xformable = UsdGeom.Xformable(stage.GetPrimAtPath(path))
         translate = next(
             (op for op in xformable.GetOrderedXformOps() if op.GetOpType() == UsdGeom.XformOp.TypeTranslate),
@@ -187,56 +203,96 @@ def hide_source_task_objects(env: gym.Env) -> None:
 def package_positions(
     frame: int,
     timeline: ParcelSortingTimeline,
-    left_eef: np.ndarray,
-    right_eef: np.ndarray,
+    left_trace: np.ndarray,
+    right_trace: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Continuous conveyor, pickup, handoff, and bin-placement paths."""
-    belt_start = np.asarray((-1.48, 0.38, 0.88))
-    pickup = np.asarray((-0.18, 0.38, 0.88))
-    left_bin = np.asarray((-0.56, -0.03, 0.93))
-    right_bin = np.asarray((0.56, -0.03, 0.93))
-    left_grip = left_eef + np.asarray((0.0, 0.0, -0.055))
-    right_grip = right_eef + np.asarray((0.0, 0.0, -0.055))
+    """Continuous conveyor, pickup, handoff, and clearance-safe placement paths."""
+    belt_start = np.asarray((-1.48, 0.38, 0.875))
+    pickup = np.asarray((-0.18, 0.38, 0.875))
+    left_bin = np.asarray((-0.56, -0.03, 0.89))
+    right_bin = np.asarray((0.56, -0.03, 0.88))
+    transfer_bin = right_bin + np.asarray((0.0, 0.0, 0.13))
+    grasp_offset = np.asarray((0.0, 0.0, -0.085))
+
+    def left_grip(index: int) -> np.ndarray:
+        return left_trace[min(max(index, 0), len(left_trace) - 1)] + grasp_offset
+
+    def right_grip(index: int) -> np.ndarray:
+        return right_trace[min(max(index, 0), len(right_trace) - 1)] + grasp_offset
 
     def belt(offset: int) -> np.ndarray:
         fraction = (frame - timeline.feed_start - offset) / 92.0
         return interpolate(belt_start, pickup, fraction)
 
     first = belt(0)
-    if frame >= 150:
-        first = interpolate(pickup, left_grip, (frame - 150) / 18.0)
+    if frame >= 144:
+        first = interpolate(pickup, left_grip(168), (frame - 144) / 24.0)
     if frame >= 168:
-        first = left_grip
+        first = left_grip(frame)
     if frame >= 226:
-        first = interpolate(left_grip, left_bin, (frame - 226) / 28.0)
-    if frame >= 254:
+        first = clearance_transfer(
+            left_grip(226), left_bin, (frame - 226) / 34.0, clearance_z=1.08
+        )
+    if frame >= 260:
         first = left_bin
 
     second = belt(34)
-    if frame >= 180:
-        second = interpolate(pickup, right_grip, (frame - 180) / 18.0)
+    if frame >= 174:
+        second = interpolate(pickup, right_grip(198), (frame - 174) / 24.0)
     if frame >= 198:
-        second = right_grip
+        second = right_grip(frame)
     if frame >= 258:
-        second = interpolate(right_grip, right_bin, (frame - 258) / 28.0)
-    if frame >= 286:
+        second = clearance_transfer(
+            right_grip(258), right_bin, (frame - 258) / 66.0, clearance_z=1.08
+        )
+    if frame >= 324:
         second = right_bin
 
     third = belt(68)
     if frame >= 252:
-        third = interpolate(pickup, left_grip, (frame - 252) / 18.0)
+        third = interpolate(pickup, left_grip(270), (frame - 252) / 18.0)
     if frame >= 270:
-        third = left_grip
+        third = left_grip(frame)
     if frame >= 305:
-        third = interpolate(left_grip, right_grip, (frame - 305) / 24.0)
+        third = arched_transfer(
+            left_grip(305), right_grip(329), (frame - 305) / 24.0, arc_height=0.16
+        )
     if frame >= 329:
-        third = right_grip
-    transfer_bin = right_bin + np.asarray((0.0, 0.0, 0.14))
-    if frame >= 340:
-        third = interpolate(right_grip, transfer_bin, (frame - 340) / 20.0)
-    if frame >= 360:
+        third = clearance_transfer(
+            right_grip(329), transfer_bin, (frame - 329) / 51.0, clearance_z=1.08
+        )
+    if frame >= 380:
         third = transfer_bin
     return first, second, third
+
+
+def sample_action(
+    actions: torch.Tensor,
+    timeline: ParcelSortingTimeline,
+    frame: int,
+) -> torch.Tensor:
+    """Linearly sample the demonstration instead of snapping to integer actions."""
+    position = timeline.action_position(frame, len(actions))
+    lower = int(math.floor(position))
+    upper = min(lower + 1, len(actions) - 1)
+    weight = position - lower
+    action = torch.lerp(actions[lower], actions[upper], weight)
+    return action.unsqueeze(0)
+
+
+def build_action_trajectory(
+    actions: torch.Tensor,
+    timeline: ParcelSortingTimeline,
+    total_frames: int,
+    *,
+    smoothing_radius: int = 6,
+) -> torch.Tensor:
+    """Resample and temporally filter the complete robot target trajectory."""
+    sampled = torch.stack(
+        [sample_action(actions, timeline, frame)[0] for frame in range(total_frames)]
+    )
+    smoothed = smooth_sequence(sampled.detach().cpu().numpy(), radius=smoothing_radius)
+    return torch.as_tensor(smoothed, device=actions.device, dtype=actions.dtype)
 
 
 def decorate_frame(image: Any, phase: ParcelPhase, index: int) -> Any:
@@ -296,6 +352,7 @@ def main() -> None:
         configure_showcase_materials(env_cfg)
         env = gym.make(env_name, cfg=env_cfg).unwrapped
         actions, initial_joint, rigid_objects = read_demo(args.demo, str(env.device))
+        action_trajectory = build_action_trajectory(actions, timeline, total_frames)
         package_ops, assets = spawn_warehouse_workcell()
         env.reset()
         env.sim.reset()
@@ -309,17 +366,50 @@ def main() -> None:
         for _ in range(3):
             env.sim.render()
 
+        # First pass: replay the continuously sampled demonstration once and
+        # cache the true end-effector paths.  The presentation pass can then
+        # attach parcel visuals to fixed traces instead of chasing endpoints
+        # that move while interpolation is being evaluated.
+        left_trace: list[np.ndarray] = []
+        right_trace: list[np.ndarray] = []
+        sampled_actions: list[np.ndarray] = []
+        for frame in range(total_frames):
+            action = action_trajectory[frame].unsqueeze(0)
+            sampled_actions.append(action[0].detach().cpu().numpy())
+            observation, _, _, _, _ = env.step(action)
+            left_eef, right_eef = _eef_positions(observation)
+            left_trace.append(left_eef.copy())
+            right_trace.append(right_eef.copy())
+            if frame == 0 or (frame + 1) % 120 == 0 or frame + 1 == total_frames:
+                print(f"[parcel-trace] {frame + 1}/{total_frames}", flush=True)
+
+        left_trace_array = smooth_sequence(np.asarray(left_trace), radius=3)
+        right_trace_array = smooth_sequence(np.asarray(right_trace), radius=3)
+        action_array = np.asarray(sampled_actions)
+        max_joint_step = float(
+            np.max(np.abs(np.diff(action_array, axis=0))) if len(action_array) > 1 else 0.0
+        )
+
+        env.reset()
+        env.sim.reset()
+        observation = teleport(env, initial_joint, rigid_objects)
+        hide_source_task_objects(env)
+        overview.set_world_poses_from_view(eyes, targets)
+        for _ in range(3):
+            env.sim.render()
+
         TASK_LABELS["parcel_sorting"] = "Bimanual parcel sorting"
         process = subprocess.Popen(
             ffmpeg_command(args.output, args.fps), stdin=subprocess.PIPE, stderr=subprocess.PIPE
         )
         assert process.stdin is not None
+        position_history: list[np.ndarray] = []
 
         for frame in range(total_frames):
-            action = actions[timeline.action_index(frame, len(actions))].unsqueeze(0)
+            action = action_trajectory[frame].unsqueeze(0)
             observation, _, _, _, _ = env.step(action)
-            left_eef, right_eef = _eef_positions(observation)
-            positions = package_positions(frame, timeline, left_eef, right_eef)
+            positions = package_positions(frame, timeline, left_trace_array, right_trace_array)
+            position_history.append(np.asarray(positions))
             for op, position in zip(package_ops, positions, strict=True):
                 op.Set(Gf.Vec3d(*(float(value) for value in position)))
             env.sim.render()
@@ -347,8 +437,31 @@ def main() -> None:
         if return_code:
             raise RuntimeError(f"ffmpeg failed with exit code {return_code}: {stderr}")
 
+        position_array = np.asarray(position_history)
+        max_parcel_step = float(
+            np.max(np.linalg.norm(np.diff(position_array, axis=0), axis=-1))
+            if len(position_array) > 1
+            else 0.0
+        )
+        parcel_step_array = (
+            np.linalg.norm(np.diff(position_array, axis=0), axis=-1)
+            if len(position_array) > 1
+            else np.zeros((0, 3))
+        )
+        if parcel_step_array.size:
+            max_step_frame, max_step_parcel = np.unravel_index(
+                int(np.argmax(parcel_step_array)), parcel_step_array.shape
+            )
+            max_step_frame = int(max_step_frame + 1)
+            max_step_parcel = int(max_step_parcel)
+        else:
+            max_step_frame = 0
+            max_step_parcel = 0
+        min_parcel_height = float(np.min(position_array[..., 2]))
+        motion_pass = max_parcel_step <= 0.05 and min_parcel_height >= 0.70
+
         manifest = {
-            "status": "pass",
+            "status": "pass" if motion_pass else "fail",
             "mode": "isaac_warehouse_bimanual_parcel_sorting_showcase",
             "environment": env_name,
             "output": str(args.output),
@@ -360,16 +473,38 @@ def main() -> None:
             "warehouse_asset": assets["warehouse"],
             "conveyor_asset": assets["conveyor"],
             "robot_controller": "recorded_successful_RoboTwin_bimanual_actions",
+            "robot_action_sampling": "continuous_linear_interpolation",
+            "robot_target_smoothing": "triangular_radius_6",
+            "end_effector_trace_passes": 2,
+            "parcel_trace_smoothing": "triangular_radius_3",
             "parcel_motion": "deterministic_kinematic_showcase_choreography",
+            "parcel_attachment": "cached_end_effector_trace_with_fixed_grasp_offset",
+            "placement_path": "lift_translate_lower_clearance_trajectory",
+            "handoff_path": "continuous_arched_transfer",
+            "visual_child_transforms": "parent_local",
             "claims_policy_inference": False,
             "claims_surface_velocity_conveyor_physics": False,
             "parcel_count": 3,
             "destination_bins": 2,
+            "motion_validation": {
+                "max_joint_target_step": max_joint_step,
+                "max_parcel_translation_per_frame_m": max_parcel_step,
+                "max_parcel_step_frame": max_step_frame,
+                "max_parcel_step_index": max_step_parcel,
+                "minimum_parcel_height_m": min_parcel_height,
+                "thresholds": {
+                    "max_parcel_translation_per_frame_m": 0.05,
+                    "minimum_parcel_height_m": 0.70,
+                },
+                "pass": motion_pass,
+            },
         }
         args.output.with_suffix(".json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
         print(json.dumps(manifest, indent=2), flush=True)
+        if not motion_pass:
+            raise RuntimeError(f"Motion validation failed: {manifest['motion_validation']}")
     except BaseException:
         traceback.print_exc()
         if process is not None and process.poll() is None:
