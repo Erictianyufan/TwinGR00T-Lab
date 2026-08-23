@@ -152,6 +152,8 @@ def spawn_warehouse_context() -> dict[str, str]:
             ((-0.28, -2.02, 1.08), 0.42),
             ((0.30, -2.02, 1.08), 0.42),
             ((0.80, -2.02, 1.66), 0.42),
+            ((0.72, -0.62, 0.67), 0.28),
+            ((1.28, -0.62, 0.67), 0.28),
         )
     ):
         path = f"{root}/BackgroundBoxes/Box{index + 1}"
@@ -207,6 +209,37 @@ def spawn_warehouse_context() -> dict[str, str]:
             (0.0, -1.85, z),
             (0.95, 0.55, 0.04),
             0.36,
+        )
+
+    # Compact camera-facing feed conveyor.  It complements the official Isaac
+    # conveyor USD with a silhouette that stays legible in RoboTwin's tight
+    # overall camera while remaining entirely outside the manipulation physics.
+    panel(f"{root}/FeedConveyor/Belt", (1.34, 0.42, 0.075), (1.00, -0.62, 0.62), (0.035, 0.045, 0.055), 0.30)
+    for index, y in enumerate((-0.39, -0.85)):
+        panel(
+            f"{root}/FeedConveyor/Rail{index + 1}",
+            (1.42, 0.045, 0.13),
+            (1.00, y, 0.70),
+            (0.95, 0.55, 0.04),
+            0.34,
+        )
+    for index, (x, y) in enumerate(
+        ((0.45, -0.43), (0.45, -0.81), (1.55, -0.43), (1.55, -0.81))
+    ):
+        panel(
+            f"{root}/FeedConveyor/Leg{index + 1}",
+            (0.07, 0.07, 0.58),
+            (x, y, 0.29),
+            (0.23, 0.27, 0.31),
+            0.42,
+        )
+    for index, x in enumerate((0.52, 0.76, 1.00, 1.24, 1.48)):
+        panel(
+            f"{root}/FeedConveyor/Marker{index + 1}",
+            (0.10, 0.30, 0.004),
+            (x, -0.62, 0.660),
+            (0.48, 0.52, 0.56),
+            0.24,
         )
 
     # Thin non-colliding destination markers sit on the existing RoboTwin
@@ -312,6 +345,13 @@ def decorate_frame(image: Any, forces: np.ndarray, index: int) -> Any:
         "TwinGR00T Lab  |  Isaac Sim warehouse logistics  |  Contact-physics parcel routing",
         font=load_font(21, bold=True),
         fill=(239, 244, 255, 255),
+    )
+    draw.rounded_rectangle((945, 72, 1254, 117), 8, fill=(7, 14, 21, 210))
+    draw.text(
+        (968, 82),
+        "CONVEYOR FEED CELL",
+        font=load_font(17, bold=True),
+        fill=(247, 177, 57, 255),
     )
     maximum = float(np.max(forces))
     active = int(np.count_nonzero(forces >= 0.05))

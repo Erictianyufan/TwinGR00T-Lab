@@ -6,6 +6,11 @@ warehouse, conveyor, pallet, and cardboard-box assets plus a camera-safe storage
 rack. Three parcel rigid bodies are picked, transported, routed to marked
 destinations, released, and allowed to settle under PhysX.
 
+The overall view also contains a compact, clearly framed feed conveyor with a
+dark belt, orange guards, support legs, lane markers, and staged cartons. It is
+visual set dressing in this experiment; the verified parcels are not claimed
+to be driven by conveyor surface velocity.
+
 The execution contract is deliberately strict:
 
 - parcels retain the RoboTwin task's dynamic rigid-body, collision, friction,

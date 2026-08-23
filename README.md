@@ -98,6 +98,8 @@ The visible set uses the official Isaac Simple Warehouse, conveyor, pallet, and
 cardboard-box assets, plus a camera-safe storage rack around the compact
 RoboTwin workcell. Set-dressing collisions and rigid bodies are disabled so the
 warehouse remains visible without changing parcel or gripper physics.
+A compact feed conveyor with belt, safety rails, support legs, lane markers,
+and staged cartons is kept fully visible in the overall camera.
 
 The renderer disables the source task's success-triggered auto-reset so the
 third grasp runs through its recorded release instead of snapping the robot
