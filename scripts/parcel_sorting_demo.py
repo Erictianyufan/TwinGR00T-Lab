@@ -78,8 +78,10 @@ def spawn_warehouse_workcell() -> tuple[list[Any], dict[str, str]]:
     prim_utils.create_prim(
         f"{root}/Warehouse",
         "Xform",
-        translation=(-3.5, -2.0, 0.0),
-        scale=(0.72, 0.72, 0.72),
+        # Keep the production warehouse as context instead of letting its
+        # nearest rack occlude the compact ALOHA workcell.
+        translation=(-7.5, -5.5, 0.0),
+        scale=(0.55, 0.55, 0.55),
         usd_path=str(WAREHOUSE_ASSET),
     )
     yaw = math.pi / 2.0
@@ -106,6 +108,13 @@ def spawn_warehouse_workcell() -> tuple[list[Any], dict[str, str]]:
     ) -> None:
         cfg = sim_utils.CuboidCfg(size=size, visual_material=material(color, roughness))
         cfg.func(path, cfg, translation=position)
+
+    # Bright industrial shell: the downloaded warehouse provides production
+    # props while these neutral surfaces keep every camera out of a black void.
+    box(f"{root}/FactoryShell/Floor", (9.0, 7.0, 0.10), (0.0, -0.2, -0.08), (0.28, 0.30, 0.32), 0.72)
+    box(f"{root}/FactoryShell/BackWall", (9.0, 0.10, 3.4), (0.0, -3.35, 1.62), (0.56, 0.60, 0.63), 0.76)
+    box(f"{root}/FactoryShell/LeftWall", (0.10, 6.7, 3.4), (-4.45, -0.1, 1.62), (0.43, 0.49, 0.54), 0.76)
+    box(f"{root}/FactoryShell/SafetyBand", (8.8, 0.025, 0.20), (0.0, -3.28, 1.00), (0.92, 0.68, 0.08), 0.42)
 
     # A dark belt and safety rails remain visible if the referenced asset's
     # authored origin differs between Isaac asset releases.
@@ -147,8 +156,9 @@ def spawn_warehouse_workcell() -> tuple[list[Any], dict[str, str]]:
         package_ops.append(translate)
 
     for name, intensity, color, position in (
-        ("HighBayKey", 13000.0, (0.88, 0.94, 1.0), (1.2, 1.4, 3.2)),
-        ("WorkcellFill", 9000.0, (1.0, 0.80, 0.62), (-1.4, -0.1, 2.5)),
+        ("HighBayKey", 18500.0, (0.88, 0.94, 1.0), (1.2, 1.4, 3.2)),
+        ("WorkcellFill", 13500.0, (1.0, 0.80, 0.62), (-1.4, -0.1, 2.5)),
+        ("BackRim", 9000.0, (0.66, 0.82, 1.0), (0.0, -2.2, 2.7)),
     ):
         light = sim_utils.SphereLightCfg(
             intensity=intensity, radius=0.55, color=color, normalize=True
@@ -293,8 +303,8 @@ def main() -> None:
         hide_source_task_objects(env)
 
         overview = env.scene["third_camera"]
-        eyes = torch.as_tensor((2.55, 2.15, 2.15), device=env.device).unsqueeze(0)
-        targets = torch.as_tensor((-0.25, 0.0, 0.82), device=env.device).unsqueeze(0)
+        eyes = torch.as_tensor((2.85, 2.65, 2.25), device=env.device).unsqueeze(0)
+        targets = torch.as_tensor((-0.30, 0.08, 0.83), device=env.device).unsqueeze(0)
         overview.set_world_poses_from_view(eyes, targets)
         for _ in range(3):
             env.sim.render()

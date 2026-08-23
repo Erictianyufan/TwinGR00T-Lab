@@ -27,7 +27,7 @@ python scripts/parcel_sorting_demo.py \
   vendor/RoboTwin/data/blocks_ranking_rgb/data/demo_0.hdf5 \
   --output artifacts/videos/parcel_sorting_demo_v1.mp4 \
   --headless --device cuda:0 --rendering_mode quality \
-  --environment manip_eval_tasks.examples.manipulation.blocks_ranking_rgb_environment:BlocksRankingRGBEnvironment \
+  --environment manip_eval_tasks.examples.manipulation.blocks_ranking_rgb_environment:BlocksRankingRgbEnvironment \
   blocks_ranking_rgb --embodiment aloha --enable_cameras True
 ```
 
