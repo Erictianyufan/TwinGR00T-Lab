@@ -33,3 +33,5 @@ python -m twingr00t_lab.xpolicylab_audit \
 - **磁盘**：下载模型和新建两套 Python/Isaac 环境前检查可用空间，并保留权重、缓存、日志、视频的余量。不得为腾空间清理其他项目的数据。
 
 真正的正式成果必须给出 N1.7 微调 checkpoint、可复现的在线推理命令、闭环成功轨迹与多机位视频。上述任一项缺失时，只能标记为准备中或回放预览。
+
+当物理重放至少得到 10 条经审计的成功轨迹后，在单独的转换环境中运行 `scripts/prepare_aloha_factory_dataset.sh`。脚本按轨迹生成 80/10/10 训练、验证、测试集，使用与重放控制步长一致的 50 fps，并调用锁定版本的 N1.7 统计工具。它拒绝覆盖已有分割目录，防止追加重放后误用过期划分。训练时将 `DATASET_PATH` 指向 `data/lerobot/blocks_ranking_rgb-train`；测试轨迹不得进入训练。
