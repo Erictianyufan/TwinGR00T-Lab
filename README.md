@@ -110,7 +110,8 @@ flowchart LR
 
 Green nodes are on the currently verified presentation path. Yellow nodes are
 implemented or planned experiment interfaces and must not be interpreted as a
-validated GR00T result. The detailed component and deployment view is in
+validated GR00T result for the RoboTwin ALOHA route. The separate G1 N1.6
+inference result below does not validate that ALOHA route. The detailed component and deployment view is in
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Evidence and project status
@@ -119,14 +120,17 @@ validated GR00T result. The detailed component and deployment view is in
 |---|---|---|
 | Bowl and block stacking | Verified replay | RoboTwin joint/gripper targets, Isaac physics, task success, post-settle checks |
 | Warehouse parcel sorting | Verified replay | Physical conveyor traction, finger contacts, lift, hold, release, and settling traces |
+| G1 shelf-to-bin box transfer | **Verified live GR00T N1.6 inference** | Official Isaac Lab-Arena G1 task, seed 10; one completed episode at step 1001, simulator `success=true` and `overall_score=1.0`. [Video](media/g1_n16_live_success_cutdown.mp4) · [raw head camera](media/g1_n16_head_rgb_episode0.mp4) · [run record](docs/g1-n16-single-gpu.md) |
 | Dataset audit and conversion | Implemented | 14-D state/action contract, camera and episode consistency checks |
 | GR00T policy transport | Implemented interface | Numeric request/response boundary; not a closed-loop learning result |
 | GR00T N1.7 post-training | Experimental | Requires a separate GPU with at least 40 GB VRAM |
 | G1 home-service composition | Experimental archive | Kept outside the accepted ALOHA-only showcase |
-| Isaac Sim 6 / Isaac Lab 3 migration | Planned track | Results must not be pooled with the strict Sim 5.1 track |
+| RoboTwin Isaac Sim 6 / Isaac Lab 3 migration | Planned track | The separate G1 Arena result must not be pooled with the strict RoboTwin Sim 5.1 track |
 
 The verified demo controller uses successful recorded RoboTwin targets. It does
-**not** claim that GR00T produced the actions shown in the current GIFs. The
+**not** claim that GR00T produced the actions shown in the current GIFs. By
+contrast, the linked G1 shelf-to-bin video came from online GR00T N1.6 model
+inference, not the recorded ALOHA replay. The
 research question and gates for making that claim are documented in
 [`docs/experiment-design.md`](docs/experiment-design.md).
 

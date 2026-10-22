@@ -20,6 +20,7 @@ for rendering and acceptance details.
 | Document | Status |
 |---|---|
 | [`g1_groot_merge.md`](g1_groot_merge.md) | G1 + GR00T + RoboTwin composition; outside the accepted ALOHA showcase |
+| [`g1-n16-single-gpu.md`](g1-n16-single-gpu.md) | Single-48GB-GPU G1 GR00T N1.6 live-inference runbook and evidence contract |
 | [`g1-experiment-protocol.md`](g1-experiment-protocol.md) | G1 loco-manipulation experiment protocol |
 | [`g1-plate-data-generation.md`](g1-plate-data-generation.md) | G1 serving-plate data generation and geometry sweep |
 | [`home_service_demo.md`](home_service_demo.md) | Archived continuous home-service presentation design |
