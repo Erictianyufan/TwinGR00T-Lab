@@ -25,13 +25,17 @@ fi
 git -C "$vendor_dir" fetch origin "$ROBOTWIN_BRANCH"
 git -C "$vendor_dir" checkout --detach "$ROBOTWIN_REF"
 
-# The upstream tree contains nested SSH submodule URLs. Apply an ephemeral HTTPS
-# rewrite to this process and every recursive Git child without changing user config.
-export GIT_CONFIG_COUNT=1
-export GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf
-export GIT_CONFIG_VALUE_0=git@github.com:
+# The nested Arena .gitmodules uses SSH URLs. First materialize Arena, then
+# override only this checkout's submodule URLs before fetching its children.
+# A process-wide url.insteadOf rewrite does not reliably reach recursive clones.
 git -C "$vendor_dir" submodule sync --recursive
-git -C "$vendor_dir" submodule update --init --recursive
+git -C "$vendor_dir" submodule update --init submodule/isaaclab_arena
+arena_dir="$vendor_dir/submodule/isaaclab_arena"
+git -C "$arena_dir" config submodule.submodules/IsaacLab.url \
+    https://github.com/isaac-sim/IsaacLab.git
+git -C "$arena_dir" config submodule.submodules/Isaac-GR00T.url \
+    https://github.com/NVIDIA/Isaac-GR00T.git
+git -C "$arena_dir" submodule update --init --recursive
 
 arena_ref=$(git -C "$vendor_dir/submodule/isaaclab_arena" rev-parse HEAD)
 if [[ "$arena_ref" != "$ROBOTWIN_ARENA_REF" ]]; then
