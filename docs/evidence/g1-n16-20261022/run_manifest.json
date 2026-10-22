@@ -1,0 +1,77 @@
+{
+  "status": "rollout_finished",
+  "controller_source": "GR00T_N1.6_model_inference",
+  "replay_used": false,
+  "scripted_assistance_used": false,
+  "task": "galileo_g1_locomanip_pick_and_place",
+  "checkpoint": {
+    "path": "/home/ubuntu/mycode/robotwin-gr00t-lab/checkpoints/GN1x-Tuned-Arena-G1-Loco-Manipulation-gn1_6",
+    "revision": "gn1_6",
+    "model_type": "Gr00tN1d6",
+    "config_sha256": "acd7f0cd662a02641f191273ec887e5a9619d1b91148f4dcebc2bab675435772",
+    "shards": {
+      "model-00001-of-00002.safetensors": 4991091456,
+      "model-00002-of-00002.safetensors": 1582283096
+    }
+  },
+  "arena_root": "/home/ubuntu/mycode/robotwin-gr00t-lab/vendor/IsaacLab-Arena-0.3.0",
+  "initial_free_vram_mib": 39898,
+  "server_command": [
+    "/home/ubuntu/env_twingroot_groot/bin/python",
+    "-m",
+    "gr00t.eval.run_gr00t_server",
+    "--model-path",
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/checkpoints/GN1x-Tuned-Arena-G1-Loco-Manipulation-gn1_6",
+    "--embodiment-tag",
+    "NEW_EMBODIMENT",
+    "--device",
+    "cuda:0",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "5555"
+  ],
+  "runner_command": [
+    "/home/ubuntu/env_isaaclab/bin/python",
+    "-m",
+    "isaaclab_arena.evaluation.policy_runner",
+    "--headless",
+    "--device",
+    "cuda:0",
+    "--policy_type",
+    "isaaclab_arena_gr00t.policy.gr00t_remote_closedloop_policy.Gr00tRemoteClosedloopPolicy",
+    "--policy_config_yaml_path",
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/vendor/IsaacLab-Arena-0.3.0/isaaclab_arena_gr00t/policy/config/g1_locomanip_gr00t_closedloop_config.yaml",
+    "--remote_host",
+    "127.0.0.1",
+    "--remote_port",
+    "5555",
+    "--num_steps",
+    "1600",
+    "--seed",
+    "10",
+    "--enable_cameras",
+    "--record_camera_video",
+    "--record_viewport_video",
+    "--output_base_dir",
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/results/g1_live/20261022-195443",
+    "galileo_g1_locomanip_pick_and_place",
+    "--object",
+    "brown_box",
+    "--embodiment",
+    "g1_wbc_joint"
+  ],
+  "started_at": "2026-10-22T19:54:43.667265",
+  "free_vram_after_model_mib": 33131,
+  "runner_exit_code": 0,
+  "video_files": [
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/results/g1_live/20261022-195443/2026-10-22_19-55-53/robot-cam-env0-robot_head_cam_rgb-episode-0.mp4",
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/results/g1_live/20261022-195443/2026-10-22_19-55-53/viewport-env0-viewport-episode-0.mp4"
+  ],
+  "episode_result_files": [
+    "/home/ubuntu/mycode/robotwin-gr00t-lab/results/g1_live/20261022-195443/2026-10-22_19-55-53/episode_results_rank0.jsonl"
+  ],
+  "server_exit_code": -15,
+  "finished_at": "2026-10-22T20:06:46.934438",
+  "final_free_vram_mib": 39898
+}
