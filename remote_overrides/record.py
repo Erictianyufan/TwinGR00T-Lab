@@ -59,7 +59,13 @@ parser.add_argument(
     "--start_episode",
     type=int,
     default=0,
-    help="First source episode to replay; useful for a bounded diagnostic run.",
+    help="First source episode to replay.",
+)
+parser.add_argument(
+    "--end_episode",
+    type=int,
+    default=None,
+    help="Exclusive source-episode bound for a diagnostic run.",
 )
 parser.add_argument(
     "--robotwin_data_root", 
@@ -896,10 +902,15 @@ def run_simulation_loop(
     
     if args_cli.start_episode < 0:
         raise ValueError("--start_episode must be non-negative")
+    if args_cli.end_episode is not None and args_cli.end_episode <= args_cli.start_episode:
+        raise ValueError("--end_episode must be greater than --start_episode")
     ep_idx = args_cli.start_episode
     target_demos = args_cli.num_demos
     
     while True:
+        if args_cli.end_episode is not None and ep_idx >= args_cli.end_episode:
+            print(f"Reached exclusive source episode bound {args_cli.end_episode}. Stopping.")
+            break
         if target_demos != -1 and total_successful_demos >= target_demos:
             print(f"Reached target number of successful demos ({target_demos}). Stopping.")
             break
