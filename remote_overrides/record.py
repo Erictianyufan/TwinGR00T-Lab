@@ -572,10 +572,10 @@ def teleport_entities(env: gym.Env, scene, episode_data: dict):
         idx_l_grip = [34, 35] 
         idx_r_arm = [8, 15, 19, 23, 27, 31]
         idx_r_grip = [36, 37] 
-        full_q[:, idx_l_arm] = action_isaac[0]
-        full_q[:, idx_l_grip] = action_isaac[1]
-        full_q[:, idx_r_arm] = action_isaac[2]
-        full_q[:, idx_r_grip] = action_isaac[3]
+        full_q[:, idx_l_arm] = action_isaac[0:6]
+        full_q[:, idx_l_grip] = action_isaac[6:8]
+        full_q[:, idx_r_arm] = action_isaac[8:14]
+        full_q[:, idx_r_grip] = action_isaac[14:16]
         robot.write_joint_position_to_sim(full_q)
         robot.write_joint_velocity_to_sim(torch.zeros_like(full_q))
         robot.set_joint_position_target(full_q)
