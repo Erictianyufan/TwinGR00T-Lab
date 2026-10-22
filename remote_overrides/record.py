@@ -529,6 +529,17 @@ class RoboTwinDataLoader:
                                 if ep_idx >= len(self.seeds):
                                     raise vision_error
                                 objects = _recover_seeded_bowl_objects(task_name, self.seeds[ep_idx])
+                        elif task_name == "blocks_ranking_rgb":
+                            # The archived seed does not reliably reproduce every
+                            # episode's sampled layout.  Recover the RGB blocks
+                            # from that episode's own first camera frame instead.
+                            try:
+                                objects = _estimate_block_objects(f, task_name)
+                            except (KeyError, ValueError, cv2.error) as vision_error:
+                                if ep_idx >= len(self.seeds):
+                                    raise vision_error
+                                print(f"[Warning] Vision pose recovery failed: {vision_error}")
+                                objects = _recover_seeded_block_objects(task_name, self.seeds[ep_idx])
                         elif ep_idx < len(self.seeds):
                             objects = _recover_seeded_block_objects(task_name, self.seeds[ep_idx])
                         else:
