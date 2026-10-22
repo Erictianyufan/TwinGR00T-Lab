@@ -60,6 +60,39 @@ stop at the pickup zone, and are sorted through finger collision and friction.
 See [block stability](docs/block-stability.md) and
 [parcel sorting](docs/parcel-sorting-demo.md) for the acceptance contracts.
 
+## G1 在线推理演示：纸箱从货架搬入蓝色料盘
+
+[![点击观看 G1 在线推理双机位视频](docs/media/g1_n16_live_preview.png)](media/g1_n16_live_success_cutdown.mp4)
+
+点击上图观看 [20 秒双机位视频](media/g1_n16_live_success_cutdown.mp4)；另有
+[未剪辑的机器人头部相机视频](media/g1_n16_head_rgb_episode0.mp4)。这是
+**GR00T N1.6 `gn1_6` 权重的在线闭环推理**，不是录制动作回放，也不是本仓库
+RoboTwin ALOHA 路线尚在实验中的 N1.7 结果。
+
+```mermaid
+flowchart LR
+    instruction["自然语言任务：从货架拿起纸箱，放入蓝色料盘"]
+    observation["当前观测：头部 RGB + G1 机器人状态"]
+    bridge["Arena 闭环策略接口：整理观测并请求动作"]
+    model["GR00T N1.6 策略服务<br/>加载 gn1_6 模型权重"]
+    control["预测动作 → G1 全身控制"]
+    physics["Isaac Lab-Arena + Isaac Sim / PhysX<br/>执行并更新物理状态"]
+    evidence["相机 MP4 + 运行 manifest + episode 结果"]
+
+    instruction --> bridge
+    observation --> bridge --> model --> control --> physics
+    physics -->|"下一时刻 RGB 与机器人状态"| observation
+    physics --> evidence
+```
+
+这条闭环在每次仿真推进后重新取得观测，并由模型给出后续动作；视频由仿真相机录制，
+成功判定来自独立保存的任务结果。此次只核验了 **seed 10 的一个完整 episode**：
+第 1001 步 `success=true`、`overall_score=1.0`。不能把单次结果当成成功率，
+也不能推断 N1.7 或 ALOHA 双臂任务已成功。查看
+[运行说明与命令](docs/g1-n16-single-gpu.md)、
+[原始 manifest](docs/evidence/g1-n16-20261022/run_manifest.json) 和
+[episode 结果](docs/evidence/g1-n16-20261022/episode_results_rank0.jsonl)。
+
 ## Project framework
 
 ```mermaid
