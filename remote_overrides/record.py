@@ -56,6 +56,12 @@ parser.add_argument(
     help="Number of successful demonstrations to record in this session. Set to -1 for infinite."
 )
 parser.add_argument(
+    "--start_episode",
+    type=int,
+    default=0,
+    help="First source episode to replay; useful for a bounded diagnostic run.",
+)
+parser.add_argument(
     "--robotwin_data_root", 
     type=str, 
     required=True, 
@@ -888,7 +894,9 @@ def run_simulation_loop(
     # 1. Load Processed History
     processed_indices = load_processed_log(args_cli.output)
     
-    ep_idx = 0 
+    if args_cli.start_episode < 0:
+        raise ValueError("--start_episode must be non-negative")
+    ep_idx = args_cli.start_episode
     target_demos = args_cli.num_demos
     
     while True:
