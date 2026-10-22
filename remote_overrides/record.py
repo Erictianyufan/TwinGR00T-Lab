@@ -674,11 +674,11 @@ def convert_hdf5_to_videos(hdf5_path: str, output_dir: str, env_cfg, next_demo_i
                     print(f"     Saved to {save_path}")
 
 def images_encoding(imgs: np.ndarray):
-    """cv2 jpg encode -> list[bytes], max_len"""
+    """JPEG-encode RGB observations without swapping their color channels."""
     encode_data = []
     max_len = 0
     for i in range(len(imgs)):
-        ok, enc = cv2.imencode(".jpg", imgs[i])
+        ok, enc = cv2.imencode(".jpg", cv2.cvtColor(imgs[i], cv2.COLOR_RGB2BGR))
         if not ok:
             raise RuntimeError(f"cv2.imencode failed at frame {i}")
         b = enc.tobytes()

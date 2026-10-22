@@ -323,6 +323,7 @@ def compose_frame(
     fps: float,
     task_key: str,
     instruction: str,
+    title_override: str | None = None,
 ) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, (6, 9, 14))
     title_font = load_font(28, bold=True)
@@ -351,7 +352,7 @@ def compose_frame(
 
     draw = ImageDraw.Draw(canvas)
     task_label = TASK_LABELS.get(task_key, task_key.replace("_", " ").title())
-    title = f"TwinGR00T Lab  |  Isaac Sim indoor showcase  |  {task_label}"
+    title = title_override or f"TwinGR00T Lab  |  Isaac Sim indoor showcase  |  {task_label}"
     draw.text((22, 13), title, font=title_font, fill=(239, 244, 255))
     status = f"frame {index + 1:03d}/{frames}  |  t = {index / fps:05.2f} s  |  {instruction}"
     draw.text((1292, 1040), status, font=info_font, fill=(190, 205, 225))

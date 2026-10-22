@@ -71,9 +71,7 @@ def modality_metadata() -> dict[str, Any]:
             "right_arm": {"start": 7, "end": 13},
             "right_gripper": {"start": 13, "end": 14},
         },
-        "video": {
-            name: {"original_key": f"observation.images.{name}"} for name in CAMERA_MAP
-        },
+        "video": {name: {"original_key": f"observation.images.{name}"} for name in CAMERA_MAP},
         "annotation": {
             "human.task_description": {
                 "original_key": "annotation.human.task_description",
@@ -116,10 +114,7 @@ def dataset_info(*, episodes: int, frames: int, height: int, width: int, fps: fl
     features: dict[str, Any] = {
         "action": vector_feature,
         "observation.state": vector_feature,
-        **{
-            f"observation.images.{name}": video_feature(height, width, fps)
-            for name in CAMERA_MAP
-        },
+        **{f"observation.images.{name}": video_feature(height, width, fps) for name in CAMERA_MAP},
         **scalar_features,
     }
     return {
@@ -150,15 +145,15 @@ def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     path.write_text(rendered, encoding="utf-8")
 
 
-def encode_video(dataset: Any, path: Path, *, fps: float) -> tuple[int, int, int]:
+def encode_video(
+    dataset: Any, path: Path, *, fps: float, correct_legacy_jpeg_bgr: bool = False
+) -> tuple[int, int, int]:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required to encode LeRobot videos")
     encoded_frames = dataset.ndim == 1 and dataset.dtype.kind in {"O", "S"}
     raw_frames = dataset.ndim == 4 and dataset.shape[-1] == 3
     if not encoded_frames and not raw_frames:
-        raise ValueError(
-            f"Expected raw RGB (T, H, W, 3) or encoded JPEG (T,), got {dataset.shape} {dataset.dtype}"
-        )
+        raise ValueError(f"Expected raw RGB (T, H, W, 3) or encoded JPEG (T,), got {dataset.shape} {dataset.dtype}")
 
     frames = dataset.shape[0]
     if encoded_frames:
@@ -179,25 +174,23 @@ def encode_video(dataset: Any, path: Path, *, fps: float) -> tuple[int, int, int
         "error",
         "-y",
     ]
-    if encoded_frames:
+    if encoded_frames and not correct_legacy_jpeg_bgr:
         command.extend(["-f", "image2pipe", "-vcodec", "mjpeg", "-framerate", str(fps)])
     else:
-        command.extend(
-            ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s:v", f"{width}x{height}", "-r", str(fps)]
-        )
+        command.extend(["-f", "rawvideo", "-pix_fmt", "rgb24", "-s:v", f"{width}x{height}", "-r", str(fps)])
     command.extend(
         [
             "-i",
             "pipe:0",
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "18",
-        "-pix_fmt",
-        "yuv420p",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
             str(path),
         ]
     )
@@ -205,9 +198,14 @@ def encode_video(dataset: Any, path: Path, *, fps: float) -> tuple[int, int, int
     if process.stdin is None or process.stderr is None:  # pragma: no cover - Popen contract
         raise RuntimeError("Failed to open ffmpeg pipes")
     try:
-        if encoded_frames:
+        if encoded_frames and not correct_legacy_jpeg_bgr:
             for index in range(frames):
                 process.stdin.write(_encoded_frame_bytes(dataset[index]))
+        elif encoded_frames:
+            for index in range(frames):
+                with Image.open(BytesIO(_encoded_frame_bytes(dataset[index]))) as image:
+                    restored_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)[..., ::-1]
+                process.stdin.write(np.ascontiguousarray(restored_rgb).tobytes(order="C"))
         else:
             for start in range(0, frames, 16):
                 batch = np.asarray(dataset[start : start + 16], dtype=np.uint8)
@@ -256,9 +254,7 @@ def write_parquet(
             "episode_index": pa.array(np.full(frames, episode_index), type=pa.int64()),
             "index": pa.array(np.arange(global_start, global_start + frames), type=pa.int64()),
             "task_index": pa.array(np.full(frames, task_index), type=pa.int64()),
-            "annotation.human.task_description": pa.array(
-                np.full(frames, task_index), type=pa.int64()
-            ),
+            "annotation.human.task_description": pa.array(np.full(frames, task_index), type=pa.int64()),
             "next.reward": pa.array(np.zeros(frames, dtype=np.float32)),
             "next.done": pa.array(np.arange(frames) == frames - 1),
         }
@@ -276,6 +272,7 @@ def convert_dataset(
     instruction_index: int,
     task_fallback: str | None,
     manifest_path: Path | None,
+    correct_legacy_jpeg_bgr: bool = False,
 ) -> dict[str, Any]:
     if fps <= 0:
         raise ValueError("fps must be positive")
@@ -322,7 +319,10 @@ def convert_dataset(
                         / f"episode_{episode_index:06d}.mp4"
                     )
                     camera_frames, image_height, image_width = encode_video(
-                        camera_group[hdf5_name], video_path, fps=fps
+                        camera_group[hdf5_name],
+                        video_path,
+                        fps=fps,
+                        correct_legacy_jpeg_bgr=correct_legacy_jpeg_bgr,
                     )
                     if camera_frames != state.shape[0]:
                         raise ValueError(f"Camera frame mismatch for {hdf5_name} in {demo_path}")
@@ -336,9 +336,7 @@ def convert_dataset(
                 global_start=global_index,
                 fps=fps,
             )
-            episodes.append(
-                {"episode_index": episode_index, "tasks": [instruction], "length": state.shape[0]}
-            )
+            episodes.append({"episode_index": episode_index, "tasks": [instruction], "length": state.shape[0]})
             tasks.append({"task_index": episode_index, "task": instruction})
             global_index += state.shape[0]
 
@@ -369,6 +367,7 @@ def convert_dataset(
         "action_dim": 14,
         "videos": len(episodes) * len(CAMERA_MAP),
         "video_codec": "h264",
+        "correct_legacy_jpeg_bgr": correct_legacy_jpeg_bgr,
     }
     if manifest_path:
         write_json(manifest_path, manifest)
@@ -385,6 +384,7 @@ def main() -> None:
     parser.add_argument("--instruction-index", type=int, default=0)
     parser.add_argument("--task-fallback")
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--correct-legacy-jpeg-bgr", action="store_true")
     args = parser.parse_args()
     manifest = convert_dataset(
         input_dir=args.input_dir,
@@ -395,6 +395,7 @@ def main() -> None:
         instruction_index=args.instruction_index,
         task_fallback=args.task_fallback,
         manifest_path=args.manifest,
+        correct_legacy_jpeg_bgr=args.correct_legacy_jpeg_bgr,
     )
     print(json.dumps(manifest, indent=2))
 

@@ -65,6 +65,8 @@ def build_groot_observation(
     policy_observation: Mapping[str, Any],
     camera_observation: Mapping[str, Any],
     prompt: str,
+    *,
+    swap_rgb_bgr: bool = False,
 ) -> dict[str, Any]:
     """Build the nested, batched GR00T observation for one simulator timestep."""
     if not prompt.strip():
@@ -74,6 +76,11 @@ def build_groot_observation(
         output_key: _video_batch_time(camera_observation[input_key], name=input_key)
         for output_key, input_key in CAMERA_MAP.items()
     }
+    if swap_rgb_bgr:
+        # Legacy RoboTwin recording called cv2.imencode on RGB arrays without
+        # converting to BGR. Its JPEG training data therefore has R/B swapped.
+        # Match that checkpoint's camera contract without recoloring the video.
+        video = {key: np.ascontiguousarray(value[..., ::-1]) for key, value in video.items()}
     state = {
         output_key: _batch_time(policy_observation[input_key], dtype=np.dtype(np.float32), name=input_key)
         for output_key, input_key in POLICY_STATE_MAP.items()
