@@ -36,4 +36,38 @@ python -m twingr00t_lab.xpolicylab_audit \
 
 真正的正式成果必须给出 N1.7 微调 checkpoint、可复现的在线推理命令、闭环成功轨迹与多机位视频。上述任一项缺失时，只能标记为准备中或回放预览。
 
-当物理重放至少得到 10 条经审计的成功轨迹后，在单独的转换环境中运行 `scripts/prepare_aloha_factory_dataset.sh`。脚本按轨迹生成 80/10/10 训练、验证、测试集，使用与重放控制步长一致的 50 fps，并调用锁定版本的 N1.7 统计工具。它拒绝覆盖已有分割目录，防止追加重放后误用过期划分。训练时将 `DATASET_PATH` 指向 `data/lerobot/blocks_ranking_rgb-train`；测试轨迹不得进入训练。
+`scripts/prepare_aloha_factory_dataset.sh` 是早期至少 10 条轨迹的 80/10/10 划分工具，默认 50 fps；**不能直接套用当前实测 62.5 Hz 的录制数据**。当前九条训练轨迹不重新混入留出集，工厂重采与第四阶段续训使用下述专用入口。
+
+## 第四阶段：完整工厂重采轨迹续训
+
+```bash
+cd /home/ubuntu/mycode/robotwin-gr00t-aloha
+INPUT_DIR="$PWD/data/replayed/blocks_ranking_rgb-factory-v1" \
+bash scripts/train_n17_factory_stage.sh
+```
+
+包装固定接收原训练来源 episode 0–8，保持完整三块分拣、双臂流程，不改为单物体任务。每条 `reports/demo_N.json` 必须标记 `teacher_replay_for_training`、工厂场景、物理验收通过，并与原始 HDF5、指令及新 HDF5 的 SHA256 一致。它还独立核查 14 维实测状态、16 维完整源动作、左右 EEF、三个方块及稳定尾窗，重新计算默认抓取验收；失败、缺条、错来源或伪造成功标志都会阻止训练。
+
+新数据必须为 62.5 Hz、真实执行至少 1 秒尾段、执行后同帧记录。转换采用 `observation[i] → action[i+1]`；新 JPEG 使用正确 RGB 编码，**禁止再次做 legacy BGR 交换**。在新 LeRobot 目录调用锁定上游 `gr00t/data/stats.py` 生成绝对及相对统计量，不复用旧缓存。
+
+默认从 `n17-aligned-v3-coloroff/checkpoint-4000` 续训至新目录 `n17-factory-v4`：4,000 步、每 1,000 步保存、仅保留 2 个检查点，batch 1、梯度累积 8、Adafactor、学习率 5e-5、state dropout 0、关闭颜色增强。启动训练前要求至少 40 GiB 可用磁盘、目标 GPU 无其他计算进程，随后再检查至少 22,000 MiB 空闲显存；不停止其他项目。
+
+`PREPARE_ONLY=1` 只进行数据验证、转换和统计量生成。`INPUT_DIR`、`SOURCE_DIR`、`DATASET_PATH`、`OUTPUT_DIR`、`BASE_MODEL_PATH` 可指定路径；数据、审计文件及训练输出均不得覆盖已有结果。准备失败后保留诊断文件，修正原因后使用新输出路径重试。此阶段产生的是教师回放训练数据及模型权重，**不是已完成真实模型推理 Demo**；正式视频仍须另行闭环推理、验收和复核。
+
+## 离线动作诊断的语言条件
+
+`scripts/diagnose_n17_offline.py` 默认分别读取训练、留出 HDF5 同级数据集下的 `instructions/<demo文件名>.json`，使用各自首条 `seen` 指令。结果 JSON 的 `prompts.train`、`prompts.heldout` 保存实际文本及来源。缺少指令时明确报错，不自动借用另一条轨迹的语言。
+
+两条轨迹可能分别要求左/右/左与右/左/左的双臂分工；对照各自教师动作时应保留该条件。`--train-prompt`、`--heldout-prompt` 可分别覆盖；兼容旧的 `--prompt` 同指令实验，但会标注为显式共用覆盖，且单独覆盖优先。此类条件变化下的逐关节误差不能直接归因于模型泛化能力。
+
+```bash
+python scripts/diagnose_n17_offline.py \
+  --checkpoint artifacts/checkpoints/n17-aligned-v3-coloroff/checkpoint-4000 \
+  --train-demo data/replayed/blocks_ranking_rgb-vision-batch/data/demo_0.hdf5 \
+  --heldout-demo data/replayed/blocks_ranking_rgb-vision-ep1/data/demo_0.hdf5 \
+  --correct-legacy-jpeg-bgr --observation-action-offset 1 \
+  --flow-steps 8 --repeats 3 --seed 42 \
+  --indices 0 40 50 60 100 180 190 200 210 300 350 400 440
+```
+
+`--indices` 支持密集检查闭爪、释放及末段动作；无法容纳完整 16 步目标窗口的帧会跳过。旧版共用指令的离线报告保留原样，不视为已经按上述方式重测。离线误差不是闭环抓取成功证据。
