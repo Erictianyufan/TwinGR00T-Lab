@@ -17,6 +17,16 @@ convert_python="${CONVERT_PYTHON:-/home/ubuntu/env_convert/bin/python}"
 groot_python="${GROOT_PYTHON:-/home/ubuntu/env_groot/bin/python}"
 gpu_id="${DIAGNOSTIC_GPU_ID:-0}"
 port="${POLICY_PORT:-5555}"
+train_demo="${TRAIN_DEMO:-${project_root}/data/replayed/blocks_ranking_rgb-vision-batch/data/demo_0.hdf5}"
+heldout_demo="${HELDOUT_DEMO:-${project_root}/data/replayed/blocks_ranking_rgb-vision-ep1/data/demo_0.hdf5}"
+action_stats="${ACTION_STATS:-${project_root}/data/lerobot/blocks_ranking_rgb-aligned-v1/meta/stats.json}"
+correct_legacy_jpeg_bgr="${CORRECT_LEGACY_JPEG_BGR-1}"
+case "${correct_legacy_jpeg_bgr}" in
+  0|1) ;;
+  *) echo "CORRECT_LEGACY_JPEG_BGR must be exactly 0 or 1" >&2; exit 2 ;;
+esac
+legacy_color_args=()
+if [[ "${correct_legacy_jpeg_bgr}" == 1 ]]; then legacy_color_args+=(--correct-legacy-jpeg-bgr); fi
 [[ "${gpu_id}" =~ ^[0-9]+$ && "${port}" =~ ^[1-9][0-9]*$ && "${port}" -le 65535 ]] || {
   echo "Invalid GPU index or policy port" >&2; exit 2;
 }
@@ -167,19 +177,59 @@ gpu_guard() {
 }
 gpu_guard
 mkdir -p results/logs results/n17_factory
-train_demo="${project_root}/data/replayed/blocks_ranking_rgb-vision-batch/data/demo_0.hdf5"
-heldout_demo="${project_root}/data/replayed/blocks_ranking_rgb-vision-ep1/data/demo_0.hdf5"
-prompt='Place red block first, set green block beside it, and complete the row by positioning blue block.'
 offline="results/logs/${run_id}_offline.json"
-[[ -f "${train_demo}" && -f "${heldout_demo}" ]] || { echo "Diagnostic demo files missing" >&2; exit 2; }
+[[ -f "${train_demo}" && -f "${heldout_demo}" && -f "${action_stats}" ]] || {
+  echo "Diagnostic demo or action statistics files missing" >&2; exit 2;
+}
 # A run prefix is immutable, including stderr, partial videos and prior audits.
 if compgen -G "results/logs/${run_id}_*" >/dev/null || compgen -G "results/n17_factory/${run_id}_*" >/dev/null; then
   echo "Refusing to overwrite existing run prefix ${run_id}" >&2; exit 2
 fi
 set -o noclobber
+prompt="$("${convert_python}" - "${train_demo}" "${heldout_demo}" "${action_stats}" \
+  "${correct_legacy_jpeg_bgr}" "${POLICY_PROMPT:-}" "results/logs/${run_id}_inputs.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+
+def resolve_diagnostic_config(train_demo, heldout_demo, action_stats, correct_legacy_jpeg_bgr, online_override=""):
+    if correct_legacy_jpeg_bgr not in ("0", "1"):
+        raise ValueError("CORRECT_LEGACY_JPEG_BGR must be exactly 0 or 1")
+    paths = {"train_demo": Path(train_demo).resolve(), "heldout_demo": Path(heldout_demo).resolve(),
+             "action_stats": Path(action_stats).resolve()}
+    for name, path in paths.items():
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing diagnostic {name}: {path}")
+    prompts = {}
+    for split in ("train", "heldout"):
+        demo = paths[f"{split}_demo"]
+        instruction_path = demo.parent.parent / "instructions" / f"{demo.stem}.json"
+        seen = json.loads(instruction_path.read_text(encoding="utf-8")).get("seen")
+        if not isinstance(seen, list) or not seen or not isinstance(seen[0], str) or not seen[0].strip():
+            raise ValueError(f"Missing usable seen[0] instruction: {instruction_path}")
+        prompts[split] = {"text": seen[0].strip(), "source": "source_seen_0", "instruction_path": str(instruction_path)}
+    if online_override and not online_override.strip():
+        raise ValueError("POLICY_PROMPT override must not be blank")
+    online = {"text": online_override.strip(), "source": "POLICY_PROMPT_override"} if online_override else prompts["train"].copy()
+    return {
+        **{name: str(path) for name, path in paths.items()},
+        "correct_legacy_jpeg_bgr": correct_legacy_jpeg_bgr == "1",
+        "observation_action_offset": 1, "offline_prompts": prompts, "online_prompt": online,
+        "initial_state_split": "train", "status": "diagnostic_configuration_not_inference_success",
+    }
+
+
+if __name__ == "__main__":
+    config = resolve_diagnostic_config(*sys.argv[1:6])
+    with Path(sys.argv[6]).open("x", encoding="utf-8") as stream:
+        json.dump(config, stream, indent=2, ensure_ascii=False)
+    print(config["online_prompt"]["text"])
+PY
+)"
 "${groot_python}" scripts/diagnose_n17_offline.py \
   --checkpoint "${checkpoint}" --train-demo "${train_demo}" --heldout-demo "${heldout_demo}" \
-  --correct-legacy-jpeg-bgr --observation-action-offset 1 \
+  "${legacy_color_args[@]}" --observation-action-offset 1 \
   --flow-steps 8 --repeats 3 --seed 42 > "${offline}" 2> "${offline%.json}.stderr"
 
 failed=0
@@ -191,7 +241,7 @@ for style in factory no-factory-dressing; do
   output="${project_root}/results/n17_factory/${run_id}_${style}_train0.mp4"
   record_rc=0
   MODEL_PATH="${checkpoint}" GROOT_PYTHON="${groot_python}" POLICY_PORT="${port}" \
-  ACTION_STATS="${project_root}/data/lerobot/blocks_ranking_rgb-aligned-v1/meta/stats.json" \
+  ACTION_STATS="${action_stats}" \
   HELDOUT_DEMO="${train_demo}" INITIAL_STATE_SPLIT=train POLICY_PROMPT="${prompt}" \
   ACTION_ALPHA=1 FLOW_STEPS=8 POLICY_SEED=42 SIM_SEED=42 SCENE_STYLE="${style}" \
   OUTPUT_VIDEO="${output}" bash scripts/record_aloha_n17_factory.sh \

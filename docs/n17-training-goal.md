@@ -90,6 +90,22 @@ export NO_ALBUMENTATIONS_UPDATE=1 TOKENIZERS_PARALLELISM=false
 
 教师 `demo_0` 的实际完整顺序为左臂红、右臂绿、左臂蓝，三块均抬高约 8 cm 并最终排齐。旧 HDF5 的左右 EEF 字段重复，且记录仅保留约 0.24 秒完整稳定尾段；这不是模型 14 维关节输入的左右错配，但不能用旧 EEF 字段直接认证新版双臂验收。工厂重采将按实际 `ee_frame` 名称重新获取左右末端，并在真实物理仿真中补录至少 1 秒末尾保持。此回放数据只用于训练，绝不作为 N1.7 推理视频发布。
 
+## 第四段：工厂观测重采与补训
+
+2026-10-24 已在与在线测试一致的工厂场景中，按原始动作完整重采 source episode 0–8，并分别保存实际左右末端、三路 RGB、动作与物体状态。九条训练轨迹均通过独立重算的默认三块抓取、双臂操作和稳定放置检查；每条末尾额外执行 63 个真实控制步（1.008 秒），不是复制静止帧。另行重采的 source episode 9 也通过数据检查，但不加入本段训练集。这些是教师回放生成的训练/诊断数据，**不是 N1.7 成功推理结果，也不代表泛化成功率**。
+
+新图像由 Pillow 编为 RGB JPEG，不再执行旧数据的 BGR 交换。保持实际 62.5 Hz 和 `observation[i] -> action[i+1]`，重新计算绝对/相对动作统计量。训练流程已完成九条源数据哈希、完整动作、真实尾段和物理证据检查及数据转换，启动从第三段 checkpoint-4000 补训 2,000 步；完成后再做真实闭环复测。
+
+```bash
+cd /home/ubuntu/mycode/robotwin-gr00t-aloha
+MAX_STEPS=2000 SAVE_STEPS=1000 nohup bash scripts/train_n17_factory_stage.sh \
+  > results/logs/n17_factory_stage4_20261024.log 2>&1 < /dev/null &
+```
+
+以上命令用于首次创建新输出，不能重复覆盖已运行目录。新数据为 `data/lerobot/blocks_ranking_rgb-factory-aligned-v1`，输出为 `artifacts/checkpoints/n17-factory-v4`。训练/留出 HDF5 分别为 `data/replayed/blocks_ranking_rgb-factory-v1/data/demo_0.hdf5` 和 `data/replayed/blocks_ranking_rgb-factory-heldout-v1/data/demo_9.hdf5`。仍使用 batch 1、梯度累积 8、Adafactor、学习率 5e-5、state dropout 0、关闭颜色扰动，保留两个阶段 checkpoint。磁盘复核约剩 60 GiB，训练启动前通过至少 40 GiB 余量检查；GPU 上没有其他计算进程，无需停止其他项目。
+
+本段后处理须使用 `EXPECTED_TRAINING_STEP=2000`，指向 `checkpoint-2000`，传入上述新训练/留出 HDF5、该数据目录的 `meta/stats.json`，并设置 `CORRECT_LEGACY_JPEG_BGR=0`。每条离线轨迹使用自己的来源指令，在线默认使用训练轨迹的来源指令；输入与指令来源保存到运行审计 JSON。是否成功仍由闭环抓取、完整放置和视频审查决定。
+
 ### 训练后的顺序诊断
 
 `scripts/run_n17_posttrain_checks.sh` 等待指定训练进程退出，核对最终 checkpoint 步数、分片文件和实际颜色增强配置，再依次执行离线检查与两组在线录像。它不会把训练进程退出、录像完成或单纯的运动学通过当作正式成功，也不会自动发布结果。
