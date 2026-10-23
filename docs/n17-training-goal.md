@@ -152,7 +152,7 @@ MAX_STEPS=2000 SAVE_STEPS=1000 nohup bash scripts/train_n17_factory_stage.sh \
 
 ## 第五段：单案例拟合，不作为泛化结果
 
-本段已启动，**尚不声明训练完成或推理成功**。目的在于检验当前模型与执行链路能否至少拟合并完成一个已见的完整案例，而不是继续增加多轨迹训练步数后直接推定成功。
+本段已完成 500 步训练，**尚不声明推理成功**。目的在于检验当前模型与执行链路能否至少拟合并完成一个已见的完整案例，而不是继续增加多轨迹训练步数后直接推定成功。
 
 计划从第四段 `artifacts/checkpoints/n17-factory-v4/checkpoint-2000` 加载权重，用新优化器和调度器最多训练 500 步。保持 batch 1、梯度累积 8、Adafactor、学习率 5e-5、state dropout 0、关闭颜色扰动，以及原先三块物体的完整双臂任务；不改为单物体抓取。唯一的数据采样变化是向 launcher 传入 `--training-episode-id 0`。
 
@@ -160,9 +160,11 @@ MAX_STEPS=2000 SAVE_STEPS=1000 nohup bash scripts/train_n17_factory_stage.sh \
 
 继续使用九条 factory 数据原目录及其 `stats.json`、`relative_stats.json`，不重算单案例专用归一化。已备份的第四段 checkpoint-2000 与九条数据统计中的 1,320 个相关标量逐项相等；新接口进一步核对源 metadata、统计内容和 loader 统计未被过滤操作改变。真正构造采样器时才写入 `episode_selection_audit.json`，记录有效起点、shard 长度、文件内容摘要、`single_episode_overfit` 与 `generalization_evidence=false`。仅 dry-run 不能视为已验证实际采样。
 
-计划设置 `max_steps=500`、`save_steps=500`、`save_total_limit=1`，不额外增加中间候选。注意上游训练结束还会在输出根目录另存最终权重，因此一份 `checkpoint-500` 加根目录最终权重仍约新增 17.8 GiB，并非只占一份权重空间；启动前须检查实际磁盘余量，不覆盖已有结果。
+本次设置 `max_steps=500`、`save_steps=500`、`save_total_limit=1`，未额外增加中间候选。上游训练结束也在输出根目录另存最终权重，因此 `checkpoint-500` 加根目录最终权重约新增 17.8 GiB，并非只占一份权重空间；未覆盖已有结果。
 
-2026-10-24 已在云机启动，输出目录为 `artifacts/checkpoints/n17-factory-v5-demo0`，训练日志为 `results/logs/n17_factory_stage5_demo0_20261024.log`。实际构造的数据集审计文件 `episode_selection_audit.json` 已记录 `verified_sampling_subset`：原始九条数据、demo0 的 510 个有效起点（0–509）各一次、五个各 102 起点的分片、全数据统计保持不变；此审计仅证明采样，不能证明权重完成或任务成功。训练完成后仍需记录步数和闭环结果。即使 demo0 最终成功，也必须标注训练案例过拟合，并按原物理条件、模型身份、动作链路和完整录像复核验收；不能将它当成留出测试成功或总体成功率。
+2026-10-24 在云机完成 500 步，输出目录为 `artifacts/checkpoints/n17-factory-v5-demo0`，训练日志为 `results/logs/n17_factory_stage5_demo0_20261024.log`。实际构造的数据集审计文件 `episode_selection_audit.json` 记录 `verified_sampling_subset`：原始九条数据、demo0 的 510 个有效起点（0–509）各一次、五个各 102 起点的分片、全数据统计保持不变。`checkpoint-500/trainer_state.json` 记录 global_step=500；独立检查已核对 safetensors 索引、张量区间和保存的颜色扰动配置。工厂闭环录像 `results/n17_factory/n17_factory500_demo0_live_20261024_factory_train0.mp4` 执行 1,500 步后未通过物理验收：三块物体均无有效抓取证据，最高抬升约 0.7 cm、0、0，最终排序和稳定释放均失败。相同示范帧上的离线动作误差有升有降，未显示一致改善。该权重和录像均保留作失败证据；不能将单案例拟合视为留出测试成功或总体成功率。
+
+同一第 4 段 checkpoint-2000 的额外种子对照也已结束：种子 7 仅红块满足抓取条件，最高抬升约 11.6 cm；种子 21 三块均无有效抓取证据。第 4 段 checkpoint-1000 使用原种子 42 时三块也均无有效抓取证据。它们都没有完成三块双臂排序，不将随机种子的单次局部抬升写成任务成功。新旧示范的三块物体、桌面、机器人基座初始位置相同，关节初值最大差约 0.0034 rad；目前正在测试使用新工厂示范的精确初值。
 
 ## 中文技术流程图
 
