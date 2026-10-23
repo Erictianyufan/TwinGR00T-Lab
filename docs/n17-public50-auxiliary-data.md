@@ -7,7 +7,7 @@
 - 来源：[RoboTwin 2.0 公共数据集](https://huggingface.co/datasets/TianxingChen/RoboTwin2.0)，`dataset/blocks_ranking_rgb/aloha-agilex_clean_50.zip`，MIT 许可。
 - 仅读取压缩包中 50 条 `data/episode*.hdf5` 与 `instructions/episode*.json`。`_traj_data/*.pkl` 没有加载或执行。
 - 原始 `joint_action/vector` 虽名为 action，但 RoboTwin 录制器从机器人关节状态读取它；因此转换为 `观测与状态 i → 状态 i+1` 的模仿目标，不误称为执行命令。
-- 原视频逐条核对均为 30 FPS（50/50），转换输出包含 50 个 episode、三路相机共 150 段视频。原相机是旧版 JPEG：常规 JPEG 解码会反转红蓝通道，转换时做且只做一次通道修正；抽检 450 张相机帧均没有新版 `XPL-RGB1` 标记。
+- 原视频逐条核对均为 30 FPS（50/50），转换输出包含 50 个 episode、23,041 组配对帧、三路相机共 150 段视频；150 段视频的帧数均经独立 `ffprobe` 核对。原相机是旧版 JPEG：常规 JPEG 解码会反转红蓝通道，转换时做且只做一次通道修正；抽检 450 张相机帧均没有新版 `XPL-RGB1` 标记。
 - 夹爪状态原值 `[0,1]` 映射到 Isaac ALOHA 近似测量范围 `[0.006,0.048]` 米；下一帧目标映射到执行命令范围 `[-0.010,0.048]` 米。转换器及输出清单都明确记录此假设。
 
 ## 与工厂场景的区别
