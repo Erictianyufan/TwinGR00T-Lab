@@ -14,6 +14,9 @@ import json
 import math
 import subprocess
 from pathlib import Path
+from typing import Any
+
+COLOR_JITTER_KEYS = ("brightness", "contrast", "saturation", "hue")
 
 
 def free_vram_mib() -> int:
@@ -57,6 +60,65 @@ def inspect_checkpoint_processor(checkpoint: str) -> dict:
         "relative_flag_explicit": "use_relative_action" in processor,
         "max_action_horizon": processor.get("max_action_horizon"),
         "state_dropout_prob": processor.get("state_dropout_prob"),
+        "visual_augmentation": {
+            key: processor.get(key)
+            for key in (
+                "color_jitter_params",
+                "random_rotation_angle",
+                "crop_fraction",
+                "image_crop_size",
+                "image_target_size",
+                "use_albumentations",
+            )
+        },
+    }
+
+
+def configure_visual_augmentation(model_config: Any, mode: str, starting_processor: dict) -> dict:
+    """Use only the pinned N1.7 processor's supported checkpoint overrides.
+
+    ``setup._create_dataset`` forwards color_jitter_params and the processor's
+    ``from_pretrained`` override_keys accepts it. None means "keep the saved
+    value", so disabling color jitter requires an explicit non-None zero dict.
+    crop_fraction is NOT in override_keys: changing only model_config would
+    silently leave the saved crop active. Do not advertise this as "no aug".
+    """
+    if mode not in ("inherit", "color-off"):
+        raise ValueError(f"Unknown visual augmentation mode: {mode}")
+    override = None
+    if mode == "color-off":
+        override = dict.fromkeys(COLOR_JITTER_KEYS, 0.0)
+        model_config.color_jitter_params = override.copy()
+    return {
+        "mode": mode,
+        "color_jitter_override": override,
+        "starting_checkpoint_visual_config": starting_processor.get("visual_augmentation"),
+        "crop_and_rotation": "inherited_not_overridden",
+        "scope": "color jitter only; spatial augmentation and model dropout are unchanged",
+        "verification": "saved effective processor checked after training; not verified by dry-run",
+    }
+
+
+def verify_saved_visual_augmentation(output_dir: Path, mode: str) -> dict:
+    """Check the effective serialized processor, never model config metadata."""
+    if mode not in ("inherit", "color-off"):
+        raise ValueError(f"Unknown visual augmentation mode: {mode}")
+    contract = inspect_checkpoint_processor(str(output_dir))
+    visual = contract.get("visual_augmentation", {})
+    actual = visual.get("color_jitter_params")
+    colors_disabled = isinstance(actual, dict) and all(actual.get(key) == 0.0 for key in COLOR_JITTER_KEYS)
+    if mode == "color-off" and not colors_disabled:
+        raise RuntimeError(
+            "Requested color-off did not reach the saved effective processor: "
+            f"{contract['source']} has color_jitter_params={actual!r}. "
+            "Do not describe this run as color-augmentation-disabled."
+        )
+    return {
+        "mode": mode,
+        "status": "verified_color_off" if mode == "color-off" else "inherit_recorded",
+        "effective_processor_source": contract["source"],
+        "effective_visual_config": visual,
+        "crop_and_rotation": "inherited_not_overridden",
     }
 
 
@@ -79,6 +141,12 @@ def main() -> None:
     )
     parser.add_argument("--min-free-mib", type=int, default=26000)
     parser.add_argument("--state-dropout-prob", type=float, default=0.2)
+    parser.add_argument(
+        "--visual-augmentation",
+        choices=("inherit", "color-off"),
+        default="inherit",
+        help="Keep checkpoint augmentation, or disable only color jitter; crop/rotation remain inherited",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -147,6 +215,7 @@ def main() -> None:
     config.model.backbone_trainable_params_fp32 = False
     config.model.use_relative_action = True
     config.model.state_dropout_prob = args.state_dropout_prob
+    visual_augmentation = configure_visual_augmentation(config.model, args.visual_augmentation, starting_processor)
 
     config.training.start_from_checkpoint = args.base_model_path
     config.training.optim = args.optimizer
@@ -176,6 +245,7 @@ def main() -> None:
         "optimizer": args.optimizer,
         "learning_rate": args.learning_rate,
         "state_dropout_prob": args.state_dropout_prob,
+        "visual_augmentation": visual_augmentation,
         "starting_checkpoint_processor": starting_processor,
         "requested_training_use_relative_action": config.model.use_relative_action,
         "effective_processor_config": str(args.output_dir.resolve() / "processor" / "processor_config.json"),
@@ -186,6 +256,10 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
     if not args.dry_run:
         run(config)
+        visual_audit = verify_saved_visual_augmentation(args.output_dir, args.visual_augmentation)
+        audit_path = args.output_dir / "visual_augmentation_audit.json"
+        audit_path.write_text(json.dumps(visual_audit, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"visual_augmentation_audit": visual_audit, "audit_path": str(audit_path)}, indent=2))
 
 
 if __name__ == "__main__":

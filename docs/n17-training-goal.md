@@ -35,7 +35,8 @@ bash scripts/train_n17_aligned_stage.sh
 - 首段 200 步训练完成，运行约 424 秒，观测显存约 20,380 MiB。
 - `n17_aligned200_train0_20261023` 是真实模型在线诊断，不是成功成果。训练场景运行 1,500 控制步、188 次推理，没有满足抓取条件；红、绿方块未搬动，蓝方块最多发生约 5.5 cm 位移。
 - 同一 checkpoint 的离线训练帧 0/50/100/200/300，16 步动作窗口混合维度 MAE 分别约 0.134/0.065/0.067/0.058/0.060。该指标混合弧度与米，不能解释为统一的物理误差，也不能替代闭环验收。
-- 第二段从首段 checkpoint-200 加载权重，使用新优化器与调度器再训练 1,000 步，checkpoint 每 500 步保存、最多保留一个；输出 `artifacts/checkpoints/n17-aligned-v2`，日志 `results/logs/n17_aligned_stage2_20261023.log`。截至此记录尚未完成，不能声称已改善成功率。
+- 第二段从首段 checkpoint-200 加载权重，使用新优化器与调度器再训练 1,000 步，耗时约 1,860 秒、平均训练 loss 0.06147。输出 `artifacts/checkpoints/n17-aligned-v2/checkpoint-1000`，日志 `results/logs/n17_aligned_stage2_20261023.log`。
+- 第二段在线评测 `n17_aligned1000_train0_20261023` 仍为 `task_not_completed`：1,500 控制步，没有满足抓取条件。不得把此次录像称为成功推理 Demo。训练帧重复三次推理的关节标准差约 0.031–0.054 rad，显示预测波动仍需降低。
 - 正式录制证据升级到 schema 2：保存原始动作块、有效限幅边界、执行动作、物体与机器人实测状态、逐帧对应控制步、MP4 哈希和实际帧数。验收独立重算动作链路和抓取/稳定放置条件，最终还必须完成视频复核。
 
 第二段复现命令：
@@ -48,3 +49,30 @@ bash scripts/train_n17_aligned_stage.sh
 ```
 
 训练脚本拒绝覆盖非空输出目录。以上记录只用于追踪训练与诊断，不是正式成功声明。
+
+## 第三段：降低颜色增强并继续拟合
+
+从第二段 checkpoint-1000 继续使用同一九条训练轨迹，新增 4,000 步；明确关闭亮度、对比度、饱和度、色相随机扰动，裁剪、旋转和网络 dropout 不变。此设置通过上游支持的 processor override 传入，训练完成后再次核验保存配置；不是仅修改一个无效的 model config 字段。每 1,000 步保存、保留四个阶段候选。尚未完成闭环验收，不能推断本段必然成功。
+
+```bash
+cd /home/ubuntu/mycode/robotwin-gr00t-aloha
+export PYTHONPATH="$PWD/src:/home/ubuntu/mycode/robotwin-gr00t-lab/vendor/Isaac-GR00T-N1.7-src"
+export NO_ALBUMENTATIONS_UPDATE=1 TOKENIZERS_PARALLELISM=false
+/home/ubuntu/env_groot/bin/python scripts/launch_aloha_n17_lowmem.py \
+  --dataset-path data/lerobot/blocks_ranking_rgb-aligned-v1 \
+  --output-dir artifacts/checkpoints/n17-aligned-v3-coloroff \
+  --base-model-path artifacts/checkpoints/n17-aligned-v2/checkpoint-1000 \
+  --modality-config-path configs/groot_robotwin_aloha.py \
+  --max-steps 4000 --save-steps 1000 --save-total-limit 4 \
+  --batch-size 1 --gradient-accumulation-steps 8 \
+  --optimizer adafactor --min-free-mib 22000 \
+  --state-dropout-prob 0 --learning-rate 0.00005 --visual-augmentation color-off
+```
+
+日志：`results/logs/n17_aligned_stage3_coloroff_20261023.log`。
+
+## 中文技术流程图
+
+![N1.7 双臂抓取、分拣训练与在线推理流程](media/n17-framework-zh.png)
+
+图为流程示意，不是任务成功证据。使用内置图片工具生成；箭头经过修订，模型检查点加载到策略模块，录像必须通过验收后才能作为正式成果发布。生成提示与修订记录见 [图像提示词](media/n17-framework-zh.prompt.txt)。
