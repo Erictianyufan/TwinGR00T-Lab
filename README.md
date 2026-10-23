@@ -271,3 +271,11 @@ No project license has been selected yet. Until a `LICENSE` file is added, the
 repository is source-visible but does not grant general reuse, modification, or
 redistribution rights. Upstream code, models, and assets remain subject to their
 own licenses and terms.
+
+**Built on NVIDIA Cosmos.** The N1.7 route uses
+[NVIDIA GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B), whose model card
+identifies Cosmos-Reason2-2B as its VLM backbone and links the
+[NVIDIA Open Model License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
+Model weights are not included in this source repository. This attribution does
+not replace the separate terms for the G1 N1.6 checkpoint, RoboTwin data, or
+simulator/robot assets, and does not imply NVIDIA endorsement of this project.
