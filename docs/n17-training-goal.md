@@ -87,6 +87,8 @@ export NO_ALBUMENTATIONS_UPDATE=1 TOKENIZERS_PARALLELISM=false
 
 2026-10-23 已完成云盘在线扩容：底层磁盘 450 GiB，根分区 ext4 文件系统显示约 436 GiB；扩容后核验约有 105 GiB 空闲。扩容未重启机器或中断训练，后续余量随 checkpoint 保存变化。
 
+2026-10-24 运行环境复核：单张 RTX 4090（24,564 MiB），驱动 570.172.08；策略环境 Python 3.12.13、PyTorch 2.9.0+cu128，仿真环境 Python 3.11.15、Isaac Sim 5.1.0.0、Isaac Lab 包版本 0.47.3。NVIDIA Isaac-GR00T 检出提交为 `376ba890cff8c9de64d71d982772a9c36185fdd7`，工作区无修改；RoboTwin、Arena 和嵌套 Isaac Lab 提交分别与 `configs/versions.env` 的三项锁定值一致。本轮仍是单 GPU 低显存实验，不替代上游推荐配置。
+
 ## 中文技术流程图
 
 ![N1.7 双臂抓取、分拣训练与在线推理流程](media/n17-framework-zh.png)
