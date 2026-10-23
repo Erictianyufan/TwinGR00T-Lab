@@ -60,6 +60,36 @@ stop at the pickup zone, and are sorted through finger collision and friction.
 See [block stability](docs/block-stability.md) and
 [parcel sorting](docs/parcel-sorting-demo.md) for the acceptance contracts.
 
+## N1.7 双臂工厂分拣：训练与闭环验证中
+
+![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
+
+[![观看 N1.7 工厂闭环诊断录像：任务未通过](docs/media/n17_factory_online_partial_preview.png)](docs/media/n17_factory_online_partial_seed42.mp4)
+
+[观看五机位、未剪辑的真实 N1.7 在线推理诊断视频](docs/media/n17_factory_online_partial_seed42.mp4)
+（约 24 秒，checkpoint-2000，seed 42）。此轨迹局部抬起红、蓝块，但漏抓绿块且
+最终放置不稳定，**未通过完整三块双臂分拣验收**；核验结果见
+[对应验证记录](docs/evidence/n17-factory-stage4-partial/verify.json)。
+
+这张图说明实际训练、在线推理和验收流程，**不代表已经获得 N1.7 成功 Demo**。
+目前已完成时序对齐数据转换，并在单张 24 GB RTX 4090 上运行低显存后训练。
+已检查的 200 步和后续 1,000 步版本没有通过抓取检查；再训练 4,000 步后，
+模型已在闭环中抓起单块物体，但仍未完成三块双臂分拣和稳定放置。
+目前已按相同工厂视角重新采集九条完整教师轨迹，另外保留一条不参与本段训练，
+已完成 2,000 步补训；新工厂闭环抓起红、蓝块，但漏抓绿块且放置不稳定。
+后续分别延长动作块执行长度、调整仿真关节变化率上限的两项单变量测试，也未通过完整任务验收。
+现正保留九条数据的归一化，仅采样 demo0 进行 500 步单案例拟合；实际采样审计确认
+510 个有效起点（0–509）各出现一次。500 步检查点已保存并通过结构核验，
+新的工厂场景闭环录制已完成，但三块物体均未满足有效抓取条件，因此第五段未通过验收。
+第六段针对绿块接近阶段追加采样并完成 1,000 步训练，真实闭环仍未形成三块有效抓取；
+截至目前没有可发布为 N1.7 完整任务成功的录像。
+即使该案例后续通过，也不代表泛化成功率。
+教师回放通过、训练 loss 下降、模型调用成功或生成 MP4 均不作为 N1.7 任务成功依据。
+
+正式成果需要同一条轨迹通过：原始模型动作到执行动作的核验、双臂操作与物体抬起检查、
+最终放置及稳定窗口检查，以及完整录像复核。去除工厂装饰的对照只用于诊断，不能替代工厂演示。
+详细配置、失败记录、资源要求和复现命令见 [N1.7 训练与验收目标](docs/n17-training-goal.md)。
+
 ## G1 在线推理演示：纸箱从货架搬入蓝色料盘
 
 [![点击观看 G1 在线推理双机位视频](docs/media/g1_n16_live_preview.png)](media/g1_n16_live_success_cutdown.mp4)
@@ -144,7 +174,7 @@ flowchart LR
 Green nodes are on the currently verified presentation path. Yellow nodes are
 implemented or planned experiment interfaces and must not be interpreted as a
 validated GR00T result for the RoboTwin ALOHA route. The separate G1 N1.6
-inference result below does not validate that ALOHA route. The detailed component and deployment view is in
+inference result above does not validate that ALOHA route. The detailed component and deployment view is in
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Evidence and project status
@@ -155,8 +185,8 @@ inference result below does not validate that ALOHA route. The detailed componen
 | Warehouse parcel sorting | Verified replay | Physical conveyor traction, finger contacts, lift, hold, release, and settling traces |
 | G1 shelf-to-bin box transfer | **Verified live GR00T N1.6 inference** | Official Isaac Lab-Arena G1 task, seed 10; one completed episode at step 1001, simulator `success=true` and `overall_score=1.0`. [Video](media/g1_n16_live_success_cutdown.mp4) · [raw head camera](media/g1_n16_head_rgb_episode0.mp4) · [run record](docs/g1-n16-single-gpu.md) |
 | Dataset audit and conversion | Implemented | 14-D state/action contract, camera and episode consistency checks |
-| GR00T policy transport | Implemented interface | Numeric request/response boundary; not a closed-loop learning result |
-| GR00T N1.7 post-training | Experimental | Requires a separate GPU with at least 40 GB VRAM |
+| GR00T N1.7 online ALOHA control | Experimental, task not yet completed | Model-generated actions have been executed in closed loop; checked episodes did not pass grasp/sorting acceptance |
+| GR00T N1.7 post-training | Experimental | Default deployment reserves 40+ GB; the experimental single-24-GB Adafactor/BF16 path has completed training segments, not a successful task. [Configuration and evidence](docs/n17-training-goal.md) |
 | G1 home-service composition | Experimental archive | Kept outside the accepted ALOHA-only showcase |
 | RoboTwin Isaac Sim 6 / Isaac Lab 3 migration | Planned track | The separate G1 Arena result must not be pooled with the strict RoboTwin Sim 5.1 track |
 
@@ -258,3 +288,11 @@ No project license has been selected yet. Until a `LICENSE` file is added, the
 repository is source-visible but does not grant general reuse, modification, or
 redistribution rights. Upstream code, models, and assets remain subject to their
 own licenses and terms.
+
+**Built on NVIDIA Cosmos.** The N1.7 route uses
+[NVIDIA GR00T-N1.7-3B](https://huggingface.co/nvidia/GR00T-N1.7-3B), whose model card
+identifies Cosmos-Reason2-2B as its VLM backbone and links the
+[NVIDIA Open Model License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/).
+Model weights are not included in this source repository. This attribution does
+not replace the separate terms for the G1 N1.6 checkpoint, RoboTwin data, or
+simulator/robot assets, and does not imply NVIDIA endorsement of this project.

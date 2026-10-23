@@ -1,0 +1,33 @@
+Use case: infographic-diagram
+Asset: Chinese technical framework image for TwinGR00T Lab README and presentation.
+Create a polished landscape 16:9 diagram, white background, dark navy titles, blue/cyan main flow, pale purple training row, muted green inference box, pale gold action blocks. Large crisp simplified-Chinese typography, spacious rounded rectangles, precise directional arrows. Flat technical icons only; no photographs or simulated success images.
+
+Title verbatim: "TwinGR00T Lab：双臂抓取与分拣技术框架"
+Subtitle: "GR00T N1.7 × ALOHA 双臂 × Isaac Sim"
+
+Top narrow row titled "训练阶段". Four boxes in left-to-right order with purple arrows:
+1 "机器人演示数据" / "图像 · 关节状态 · 动作 · 指令"
+2 "数据校正与转换" / "颜色校正 · 下一步动作对齐" / "LeRobot 数据与归一化统计"
+3 "模型后训练" / "冻结视觉语言骨干" / "训练投影层与动作头"
+4 "模型检查点" / "权重 · 输入配置 · 统计量"
+Exactly one purple arrow descends from the checkpoint box to the GR00T N1.7 policy box below, labeled "加载". No training-data arrow into the simulator or execution action box.
+
+Middle dominant row titled "在线闭环推理". Five boxes connected left-to-right by thick blue arrows:
+1 "实时输入" / "自然语言指令" / "头部与双腕三路图像" / "14 维实测状态"
+2 "GR00T N1.7 策略" / "视觉语言编码" / "条件流匹配生成动作"
+3 "动作块预测" / "预测 16 步，执行前 8 步" / "每步 14 维关节与夹爪目标"
+4 "动作适配与约束" / "14 维展开为 16 维" / "幅值限制 · 变化率限制"
+5 "物理仿真执行" / "ALOHA 双臂" / "Isaac Sim / PhysX"
+The fifth box contains a small technical line illustration of two table-mounted robotic arms and three red/green/blue blocks, labeled as schematic, not photographic evidence.
+One clearly directed dashed blue return arrow runs below all five boxes, from the simulator on the far right back into the realtime input on the far left, labelled "下一时刻图像与实测状态反馈". No overlap with box labels. Add a short note below the main row: "每执行一个动作块，再根据新观测重新规划".
+
+Bottom narrow row titled "录像与验收". Grey branch arrow from simulator to three connected boxes:
+"同轨迹多机位录像" / "全景 · 正面 · 头部 · 双腕"
+then "独立证据核验" / "模型动作到执行动作可追溯" / "物体抬升 · 双臂操作 · 稳定放置" / "完整视频复核"
+then "成果发布" / "中文框架图 · 完整视频" / "运行记录 · 复现命令 · GitHub"
+
+Bottom note verbatim: "本图为技术流程示意；任务成功以实际运行记录和视频验收为准。"
+All explanatory captions must be Chinese; preserve only proper model/software names and numeric dimension notation. Do not add success rates, check marks indicating verified success, fake sensor data, force/contact feedback as a policy input, ROS, RTC, human operators, replay control, or invented modules. Ensure every arrow has a clear arrowhead and doesn't cross text. Do not include any credentials, server IP, watermark or decorative filler.
+
+Selected output: n17-framework-zh.png. Generated with the built-in image tool on 2026-10-23.
+Revision prompt: Preserve all text, layout and icons. Reroute the checkpoint loading arrow into the GR00T N1.7 policy box, not the simulator. Keep only one grey simulator branch into multi-camera recording; remove bypasses to validation or publication. The sole publication path must pass through independent evidence verification, with the last arrow labelled 通过验收. Preserve the blue simulator-to-input feedback loop.

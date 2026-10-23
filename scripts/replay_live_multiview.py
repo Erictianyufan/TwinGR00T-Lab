@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 CANVAS_SIZE = (1920, 1080)
 HEADER_HEIGHT = 60
 MAIN_SIZE = (1280, 960)
-SIDE_SIZE = (640, 360)
+SIDE_SIZE = (640, 320)
 CAMERA_KEYS = (
     "third_camera_rgb",
     "front_camera_rgb",
@@ -176,6 +176,29 @@ def draw_label(canvas: Image.Image, xy: tuple[int, int], text: str, font: ImageF
     draw.text((x + 14, y + 12), text, font=font, fill=(255, 255, 255, 255))
 
 
+def fit_text_line(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width: int) -> str:
+    """Fit display-only text in one line without changing the policy instruction."""
+    text = " ".join(text.split())
+
+    def fits(value: str) -> bool:
+        left, _, right, _ = draw.textbbox((0, 0), value, font=font)
+        return right - left <= width
+
+    if fits(text):
+        return text
+    suffix = "..."
+    if not fits(suffix):
+        return ""
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(text[:middle] + suffix):
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low] + suffix
+
+
 def task_key_for(environment: str) -> str:
     module = environment.split(":", 1)[0]
     name = module.rsplit(".", 1)[-1]
@@ -323,6 +346,7 @@ def compose_frame(
     fps: float,
     task_key: str,
     instruction: str,
+    title_override: str | None = None,
 ) -> Image.Image:
     canvas = Image.new("RGB", CANVAS_SIZE, (6, 9, 14))
     title_font = load_font(28, bold=True)
@@ -349,12 +373,26 @@ def compose_frame(
         canvas.paste(letterbox(to_rgb(camera_obs[key]), wrist_size), (x, wrist_y))
         draw_label(canvas, (x, wrist_y), label, label_font)
 
-    draw = ImageDraw.Draw(canvas)
     task_label = TASK_LABELS.get(task_key, task_key.replace("_", " ").title())
-    title = f"TwinGR00T Lab  |  Isaac Sim indoor showcase  |  {task_label}"
-    draw.text((22, 13), title, font=title_font, fill=(239, 244, 255))
-    status = f"frame {index + 1:03d}/{frames}  |  t = {index / fps:05.2f} s  |  {instruction}"
-    draw.text((1292, 1040), status, font=info_font, fill=(190, 205, 225))
+    title = title_override or f"TwinGR00T Lab  |  Isaac Sim indoor showcase  |  {task_label}"
+    # Render text into separate bands so even unusual fonts cannot cover cameras.
+    header = Image.new("RGB", (CANVAS_SIZE[0], HEADER_HEIGHT), (6, 9, 14))
+    draw = ImageDraw.Draw(header)
+    draw.text(
+        (22, 13), fit_text_line(draw, title, title_font, CANVAS_SIZE[0] - 44),
+        font=title_font, fill=(239, 244, 255),
+    )
+    canvas.paste(header, (0, 0))
+    footer_y = HEADER_HEIGHT + MAIN_SIZE[1]
+    footer = Image.new("RGB", (CANVAS_SIZE[0], CANVAS_SIZE[1] - footer_y), (6, 9, 14))
+    draw = ImageDraw.Draw(footer)
+    status = f"frame {index + 1:03d}/{frames}  |  t = {index / fps:05.2f} s"
+    for y, text in ((6, status), (31, f"Instruction: {instruction}")):
+        draw.text(
+            (22, y), fit_text_line(draw, text, info_font, CANVAS_SIZE[0] - 44),
+            font=info_font, fill=(190, 205, 225),
+        )
+    canvas.paste(footer, (0, footer_y))
     return canvas
 
 

@@ -34,6 +34,14 @@ EOF
   exit 2
 fi
 
+free_vram_mib="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | sort -n | head -1 | tr -d ' ')"
+min_free_vram_mib="${MIN_FREE_VRAM_MIB:-36000}"
+if (( free_vram_mib < min_free_vram_mib )); then
+  echo "Only ${free_vram_mib} MiB GPU memory is free; need ${min_free_vram_mib} MiB before training." >&2
+  echo "Existing GPU processes will not be stopped." >&2
+  exit 2
+fi
+
 cd "${GROOT_ROOT}"
 common_args=(
   gr00t/experiment/launch_finetune.py
@@ -45,6 +53,7 @@ common_args=(
   --output-dir "${OUTPUT_DIR}"
   --max-steps "${MAX_STEPS}"
   --global-batch-size "${GLOBAL_BATCH_SIZE}"
+  --gradient-accumulation-steps "${GRADIENT_ACCUMULATION_STEPS:-1}"
   --save-steps "${SAVE_STEPS:-500}"
   --save-total-limit "${SAVE_TOTAL_LIMIT:-3}"
   --dataloader-num-workers "${DATALOADER_NUM_WORKERS:-4}"

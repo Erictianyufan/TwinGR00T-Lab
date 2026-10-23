@@ -56,6 +56,18 @@ parser.add_argument(
     help="Number of successful demonstrations to record in this session. Set to -1 for infinite."
 )
 parser.add_argument(
+    "--start_episode",
+    type=int,
+    default=0,
+    help="First source episode to replay.",
+)
+parser.add_argument(
+    "--end_episode",
+    type=int,
+    default=None,
+    help="Exclusive source-episode bound for a diagnostic run.",
+)
+parser.add_argument(
     "--robotwin_data_root", 
     type=str, 
     required=True, 
@@ -529,6 +541,17 @@ class RoboTwinDataLoader:
                                 if ep_idx >= len(self.seeds):
                                     raise vision_error
                                 objects = _recover_seeded_bowl_objects(task_name, self.seeds[ep_idx])
+                        elif task_name == "blocks_ranking_rgb":
+                            # The archived seed does not reliably reproduce every
+                            # episode's sampled layout.  Recover the RGB blocks
+                            # from that episode's own first camera frame instead.
+                            try:
+                                objects = _estimate_block_objects(f, task_name)
+                            except (KeyError, ValueError, cv2.error) as vision_error:
+                                if ep_idx >= len(self.seeds):
+                                    raise vision_error
+                                print(f"[Warning] Vision pose recovery failed: {vision_error}")
+                                objects = _recover_seeded_block_objects(task_name, self.seeds[ep_idx])
                         elif ep_idx < len(self.seeds):
                             objects = _recover_seeded_block_objects(task_name, self.seeds[ep_idx])
                         else:
@@ -572,10 +595,10 @@ def teleport_entities(env: gym.Env, scene, episode_data: dict):
         idx_l_grip = [34, 35] 
         idx_r_arm = [8, 15, 19, 23, 27, 31]
         idx_r_grip = [36, 37] 
-        full_q[:, idx_l_arm] = action_isaac[0]
-        full_q[:, idx_l_grip] = action_isaac[1]
-        full_q[:, idx_r_arm] = action_isaac[2]
-        full_q[:, idx_r_grip] = action_isaac[3]
+        full_q[:, idx_l_arm] = action_isaac[0:6]
+        full_q[:, idx_l_grip] = action_isaac[6:8]
+        full_q[:, idx_r_arm] = action_isaac[8:14]
+        full_q[:, idx_r_grip] = action_isaac[14:16]
         robot.write_joint_position_to_sim(full_q)
         robot.write_joint_velocity_to_sim(torch.zeros_like(full_q))
         robot.set_joint_position_target(full_q)
@@ -651,11 +674,11 @@ def convert_hdf5_to_videos(hdf5_path: str, output_dir: str, env_cfg, next_demo_i
                     print(f"     Saved to {save_path}")
 
 def images_encoding(imgs: np.ndarray):
-    """cv2 jpg encode -> list[bytes], max_len"""
+    """JPEG-encode RGB observations without swapping their color channels."""
     encode_data = []
     max_len = 0
     for i in range(len(imgs)):
-        ok, enc = cv2.imencode(".jpg", imgs[i])
+        ok, enc = cv2.imencode(".jpg", cv2.cvtColor(imgs[i], cv2.COLOR_RGB2BGR))
         if not ok:
             raise RuntimeError(f"cv2.imencode failed at frame {i}")
         b = enc.tobytes()
@@ -877,10 +900,17 @@ def run_simulation_loop(
     # 1. Load Processed History
     processed_indices = load_processed_log(args_cli.output)
     
-    ep_idx = 0 
+    if args_cli.start_episode < 0:
+        raise ValueError("--start_episode must be non-negative")
+    if args_cli.end_episode is not None and args_cli.end_episode <= args_cli.start_episode:
+        raise ValueError("--end_episode must be greater than --start_episode")
+    ep_idx = args_cli.start_episode
     target_demos = args_cli.num_demos
     
     while True:
+        if args_cli.end_episode is not None and ep_idx >= args_cli.end_episode:
+            print(f"Reached exclusive source episode bound {args_cli.end_episode}. Stopping.")
+            break
         if target_demos != -1 and total_successful_demos >= target_demos:
             print(f"Reached target number of successful demos ({target_demos}). Stopping.")
             break

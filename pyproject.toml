@@ -14,9 +14,11 @@ dependencies = ["numpy>=1.26"]
 dev = ["pytest>=8", "ruff>=0.9"]
 data = ["h5py>=3.11", "pillow>=10", "pyarrow>=17"]
 bridge = ["msgpack>=1.1", "msgpack-numpy>=0.4.8", "pyzmq>=26"]
+review = ["pillow>=10", "imageio-ffmpeg==0.6.0"]
 
 [project.scripts]
 twingr00t-audit = "twingr00t_lab.dataset:main"
+twingr00t-audit-xpolicy = "twingr00t_lab.xpolicylab_audit:main"
 twingr00t-convert = "twingr00t_lab.conversion:main"
 
 [tool.hatch.build.targets.wheel]
