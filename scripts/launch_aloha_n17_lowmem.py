@@ -135,6 +135,14 @@ def main() -> None:
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument(
+        "--training-episode-id",
+        type=int,
+        help=(
+            "Sample only this metadata episode_index; retain full-dataset stats "
+            "(single-case overfit, not generalization)"
+        ),
+    )
+    parser.add_argument(
         "--optimizer",
         choices=("adamw_torch_fused", "adamw_bnb_8bit", "adafactor"),
         default="adamw_torch_fused",
@@ -171,6 +179,15 @@ def main() -> None:
         starting_processor = inspect_checkpoint_processor(args.base_model_path)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+
+    sampling = {"mode": "all_episodes"}
+    if args.training_episode_id is not None:
+        from twingr00t_lab.training_selection import selection_plan
+
+        try:
+            sampling = selection_plan(args.dataset_path, args.training_episode_id)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
 
     available = free_vram_mib()
     if available < args.min_free_mib:
@@ -250,12 +267,28 @@ def main() -> None:
         "requested_training_use_relative_action": config.model.use_relative_action,
         "effective_processor_config": str(args.output_dir.resolve() / "processor" / "processor_config.json"),
         "training_initialization": "checkpoint_weights_with_new_optimizer_and_schedule",
+        "training_sampling": sampling,
         "trainable": ["projector", "action_head"],
         "experimental_low_memory": True,
     }
     print(json.dumps(summary, indent=2), flush=True)
     if not args.dry_run:
-        run(config)
+        restore_selection = None
+        if args.training_episode_id is not None:
+            import gr00t.data.dataset.factory as dataset_factory
+
+            from twingr00t_lab.training_selection import install_factory_selection
+
+            restore_selection = install_factory_selection(
+                dataset_factory, sampling, args.output_dir.resolve() / "episode_selection_audit.json"
+            )
+        try:
+            run(config)
+        finally:
+            if restore_selection is not None:
+                restore_selection()
+        if args.training_episode_id is not None and not (args.output_dir / "episode_selection_audit.json").is_file():
+            raise RuntimeError("Training returned without verifying the requested episode sampling subset")
         visual_audit = verify_saved_visual_augmentation(args.output_dir, args.visual_augmentation)
         audit_path = args.output_dir / "visual_augmentation_audit.json"
         audit_path.write_text(json.dumps(visual_audit, indent=2) + "\n", encoding="utf-8")
