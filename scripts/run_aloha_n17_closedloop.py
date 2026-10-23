@@ -22,7 +22,6 @@ from isaaclab_arena.examples.example_environments.cli import (
     add_example_environments_cli_args,
     get_arena_builder_from_cli,
 )
-from PIL import Image
 from replay_live_multiview import (
     CAMERA_KEYS,
     compose_frame,
@@ -37,18 +36,28 @@ from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
 from twingr00t_lab.policy_bridge import build_groot_observation, groot_action_to_isaac, to_numpy
 from twingr00t_lab.policy_client import PolicyTransportClient
+from twingr00t_lab.policy_input_evidence import (
+    SCENE_STYLES,
+    save_policy_input_evidence,
+    scene_evidence,
+    scene_video_title,
+)
 from twingr00t_lab.recording_evidence import action_sha256, video_evidence
+from twingr00t_lab.seeding import SEED_NOTE, validate_seed
 
 
-def spawn_factory_background() -> None:
-    """Match the training dome light, then dress only the distant background."""
+def spawn_factory_background(scene_style: str = "factory") -> None:
+    """Keep shared HDR lighting; optionally add the factory's visual dressing."""
     import isaaclab.sim as sim_utils
 
+    scene_evidence(scene_style)
     hdr = Path(__file__).resolve().parents[1] / "vendor/RoboTwin/assets/texture/base0.exr"
     if not hdr.is_file():
         raise FileNotFoundError(f"Training-scene HDR lighting asset is missing: {hdr}")
     light = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75), texture_file=str(hdr))
     light.func("/World/Light", light)
+    if scene_style == "no-factory-dressing":
+        return
 
     def panel(
         path: str, size: tuple[float, float, float], pos: tuple[float, float, float], color: tuple[float, float, float]
@@ -124,6 +133,7 @@ def main() -> None:
     parser.add_argument("--initial-state-split", choices=("train", "heldout"), default="heldout")
     parser.add_argument("--flow-steps", type=int, default=4, help="N1.7 server flow integration steps for audit")
     parser.add_argument("--sample-average", type=int, default=1, help="N1.7 server sample count for audit")
+    parser.add_argument("--policy-seed", type=int, default=42, help="RNG seed configured in the policy server")
     parser.add_argument(
         "--policy-camera-bgr-swap",
         action="store_true",
@@ -131,10 +141,24 @@ def main() -> None:
     )
     parser.add_argument("--snapshot-only", action="store_true", help="Save initial policy images without inference")
     parser.add_argument(
+        "--scene-style",
+        choices=SCENE_STYLES,
+        default="factory",
+        help="no-factory-dressing is a visual-domain diagnostic, not a formal factory result",
+    )
+    parser.add_argument(
         "--action-stats", required=True, type=Path, help="Train-split statistics for action safety limits"
     )
     add_example_environments_cli_args(parser)
+    # Some Arena revisions expose --seed with None as the default. Make the
+    # paired diagnostic default explicit without registering the flag twice.
+    parser.set_defaults(seed=42)
     args = parser.parse_args()
+    try:
+        validate_seed(args.seed)
+        validate_seed(args.policy_seed)
+    except ValueError as error:
+        parser.error(str(error))
 
     if args.max_steps < 1 or args.execute_steps < 1 or args.record_every < 1:
         parser.error("max-steps, execute-steps and record-every must be positive")
@@ -169,10 +193,12 @@ def main() -> None:
     raw_policy_chunks: list[np.ndarray] = []
     video_control_steps: list[int] = []
     policy_calls: list[dict] = []
+    policy_input_metadata = None
     start = time.monotonic()
     try:
         arena_builder = get_arena_builder_from_cli(args)
         env_name, env_cfg = arena_builder.build_registered()
+        env_cfg.seed = args.seed
         env_cfg.sim.dt = 1 / 250
         env_cfg.sim.decimation = 5
         # Keep the policy-facing workcell materials and lighting identical to
@@ -186,7 +212,7 @@ def main() -> None:
         if hasattr(env_cfg.terminations, "time_out"):
             env_cfg.terminations.time_out = None
         env = gym.make(env_name, cfg=env_cfg).unwrapped
-        spawn_factory_background()
+        spawn_factory_background(args.scene_style)
         env.reset()
         env.sim.reset()
 
@@ -203,15 +229,22 @@ def main() -> None:
         missing = set(CAMERA_KEYS) - set(observation.get("camera_obs", {}))
         if missing:
             raise RuntimeError(f"Five-camera recording is unavailable: {sorted(missing)}")
+        task_key = task_key_for(args.environment)
+        prompt = args.prompt or instruction_for(args.demo, task_key)
         if args.snapshot_only:
             snapshot = build_groot_observation(
                 observation["policy"],
                 observation["camera_obs"],
-                "initial-state diagnostic",
+                prompt,
                 swap_rgb_bgr=args.policy_camera_bgr_swap,
             )
-            for camera_name, frames in snapshot["video"].items():
-                Image.fromarray(frames[0, 0]).save(args.output.with_name(f"{args.output.stem}.{camera_name}.png"))
+            save_policy_input_evidence(
+                snapshot,
+                observation["camera_obs"],
+                args.output,
+                scene_style=args.scene_style,
+                policy_call_pending=False,
+            )
             state = {key: values[0, 0].tolist() for key, values in snapshot["state"].items()}
             args.output.with_suffix(".snapshot.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
             print("[policy] initial camera and proprioception snapshots saved", flush=True)
@@ -236,8 +269,6 @@ def main() -> None:
             dtype=np.float32,
         )
 
-        task_key = task_key_for(args.environment)
-        prompt = args.prompt or instruction_for(args.demo, task_key)
         if not prompt.strip():
             raise RuntimeError("The policy task instruction is empty")
         control_fps = 1.0 / float(env.step_dt)
@@ -275,6 +306,14 @@ def main() -> None:
                         prompt,
                         swap_rgb_bgr=args.policy_camera_bgr_swap,
                     )
+                    if policy_input_metadata is None:
+                        policy_input_metadata = save_policy_input_evidence(
+                            policy_input,
+                            observation["camera_obs"],
+                            args.output,
+                            scene_style=args.scene_style,
+                            policy_call_pending=True,
+                        )
                     inference_start = time.monotonic()
                     prediction, _ = client.get_action(policy_input)
                     all_actions = groot_action_to_isaac(prediction)
@@ -342,10 +381,7 @@ def main() -> None:
                         record_fps,
                         task_key,
                         prompt,
-                        title_override=(
-                            "TwinGR00T Lab  |  GR00T N1.7 online inference  |  "
-                            f"Factory sorting ({args.initial_state_split} initial state)"
-                        ),
+                        title_override=scene_video_title(args.scene_style, args.initial_state_split),
                     )
                     process.stdin.write(np.asarray(frame, dtype=np.uint8).tobytes())
                     video_control_steps.append(step + 1)
@@ -429,6 +465,8 @@ def main() -> None:
                 "video_control_steps": "int64 1-based executed control steps captured after env.step",
             },
             **video_metadata,
+            **scene_evidence(args.scene_style),
+            "first_policy_input": policy_input_metadata,
             "status": "success" if success else "task_not_completed",
             "stop_reason": stop_reason,
             "acceptance": acceptance,
@@ -440,6 +478,9 @@ def main() -> None:
             "initial_state_split": args.initial_state_split,
             "checkpoint": str(args.checkpoint),
             "model_sampling": {"flow_steps": args.flow_steps, "sample_average": args.sample_average},
+            "policy_seed": args.policy_seed,
+            "simulation_seed": args.seed,
+            "seed_determinism_note": SEED_NOTE,
             "environment": env_name,
             "task_instruction": prompt,
             "policy_camera_bgr_swap": args.policy_camera_bgr_swap,

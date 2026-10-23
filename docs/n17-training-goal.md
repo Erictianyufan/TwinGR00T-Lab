@@ -71,6 +71,16 @@ export NO_ALBUMENTATIONS_UPDATE=1 TOKENIZERS_PARALLELISM=false
 
 日志：`results/logs/n17_aligned_stage3_coloroff_20261023.log`。
 
+### 训练后的顺序诊断
+
+`scripts/run_n17_posttrain_checks.sh` 等待指定训练进程退出，核对最终 checkpoint 步数、分片文件和实际颜色增强配置，再依次执行离线检查与两组在线录像。它不会把训练进程退出、录像完成或单纯的运动学通过当作正式成功，也不会自动发布结果。
+
+- 两组均固定策略与仿真种子为 42，使用同一训练初始场景；分别为 `factory` 与 `no-factory-dressing`。后者仅移除新增工厂装饰，不代表已经重建原始采集环境，不能用于正式工厂验收。
+- 每组保存三路实际传给策略的首帧 PNG、数值范围和文件哈希，用于排查颜色及图像输入问题。
+- GPU 显存检查不通过时退出，不停止其他项目进程。最终仍需检查完整录像、独立验收，以及区分训练场景和留出场景。
+
+2026-10-23 已完成云盘在线扩容：底层磁盘 450 GiB，根分区 ext4 文件系统显示约 436 GiB；扩容后核验约有 105 GiB 空闲。扩容未重启机器或中断训练，后续余量随 checkpoint 保存变化。
+
 ## 中文技术流程图
 
 ![N1.7 双臂抓取、分拣训练与在线推理流程](media/n17-framework-zh.png)

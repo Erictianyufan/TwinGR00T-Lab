@@ -120,6 +120,8 @@ def recording_fixture(tmp_path, monkeypatch):
     chunks = actions.reshape(10, 10, 16)
     manifest = {
         "recording_schema_version": 2,
+        "scene_style": "factory",
+        "scene_diagnostic_only": False,
         "status": "success",
         "controller_source": "GR00T_N1.7_model_inference",
         "replay_used": False,
@@ -196,6 +198,65 @@ def test_verifier_recomputes_acceptance_and_rejects_reset_or_tampering(recording
     altered["acceptance"]["max_lift_m"][0] = 99
     path.write_text(json.dumps(altered))
     with pytest.raises(ValueError, match="disagrees"):
+        verifier.verify_recording(path)
+
+
+@pytest.mark.parametrize(
+    "scene,diagnostic",
+    [("no-factory-dressing", True), ("factory", True), (None, None), ("factory", None), (None, False)],
+)
+def test_nonformal_or_unrecorded_scene_never_passes_formal_factory_acceptance(recording_fixture, scene, diagnostic):
+    verifier, path, manifest = recording_fixture
+    if scene is None:
+        manifest.pop("scene_style")
+    else:
+        manifest["scene_style"] = scene
+    if diagnostic is None:
+        manifest.pop("scene_diagnostic_only")
+    else:
+        manifest["scene_diagnostic_only"] = diagnostic
+    path.write_text(json.dumps(manifest))
+    # Even an otherwise complete, visually reviewed kinematic pass is not a
+    # formal factory demo. --allow-unreviewed cannot bypass the scene gate.
+    with pytest.raises(ValueError, match="scene_style=factory"):
+        verifier.verify_recording(path, allow_unreviewed=True)
+    result = verifier.verify_recording(path, require_success=False)
+    assert result["status"] == "kinematic_pass_diagnostic_scene"
+    assert result["formal_acceptance"] is False
+    assert result["formal_factory_scene"] is False
+
+
+def test_allow_failed_is_diagnostic_even_for_a_valid_factory_success(recording_fixture):
+    verifier, path, _ = recording_fixture
+    assert verifier.verify_recording(path)["formal_acceptance"] is True
+    result = verifier.verify_recording(path, require_success=False)
+    assert result["formal_factory_scene"] is True
+    assert result["status"] == "kinematic_pass_diagnostic_only"
+    assert result["formal_acceptance"] is False
+
+
+@pytest.mark.parametrize("diagnostic", [0, 1, "false", "true"])
+def test_scene_diagnostic_flag_requires_a_real_boolean(recording_fixture, diagnostic):
+    verifier, path, manifest = recording_fixture
+    manifest["scene_diagnostic_only"] = diagnostic
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="JSON boolean"):
+        verifier.verify_recording(path, require_success=False)
+
+
+def test_policy_input_png_hashes_use_portable_adjacent_files(recording_fixture):
+    verifier, path, manifest = recording_fixture
+    cameras = {}
+    for name in ("head", "left_wrist", "right_wrist"):
+        png = path.with_name(f"{path.stem}.{name}.png")
+        payload = f"mock {name} PNG".encode()
+        png.write_bytes(payload)
+        cameras[name] = {"png": f"/remote/output/{png.name}", "png_sha256": hashlib.sha256(payload).hexdigest()}
+    manifest["first_policy_input"] = {"cameras": cameras}
+    path.write_text(json.dumps(manifest))
+    assert verifier.verify_recording(path)["first_policy_input_pngs_verified"] is True
+    path.with_name(f"{path.stem}.head.png").write_bytes(b"another image")
+    with pytest.raises(ValueError, match="PNG SHA-256 mismatch"):
         verifier.verify_recording(path)
 
 

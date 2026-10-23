@@ -30,8 +30,17 @@ def verify_video(video_path: Path, manifest: dict, steps: int, video_control_ste
         raise ValueError("Video SHA-256 does not match the recording manifest")
     probe = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
-            "-show_entries", "format=duration:stream=nb_read_frames,avg_frame_rate", "-of", "json", str(video_path),
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-count_frames",
+            "-show_entries",
+            "format=duration:stream=nb_read_frames,avg_frame_rate",
+            "-of",
+            "json",
+            str(video_path),
         ],
         capture_output=True,
         text=True,
@@ -76,6 +85,31 @@ def verify_video(video_path: Path, manifest: dict, steps: int, video_control_ste
     return {**result, "complete": True, "frame_count": decoded_frames}
 
 
+def verify_policy_input_pngs(manifest_path: Path, manifest: dict) -> bool:
+    """Verify optional model-input snapshots beside a portable recording bundle."""
+    evidence = manifest.get("first_policy_input")
+    if evidence is None:
+        return False
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("cameras"), dict):
+        raise ValueError("Invalid first-policy-input camera evidence")
+    cameras = evidence["cameras"]
+    if set(cameras) != {"head", "left_wrist", "right_wrist"}:
+        raise ValueError("First-policy-input evidence must include all three cameras")
+    for name, camera in cameras.items():
+        path = manifest_path.with_name(f"{manifest_path.stem}.{name}.png")
+        # The recording may have been downloaded from Linux to another host.
+        # Validate the recorded basename but never read its remote absolute path.
+        if not isinstance(camera, dict) or Path(str(camera.get("png", ""))).name != path.name:
+            raise ValueError(f"Invalid policy-input PNG filename for {name}")
+        if not path.is_file():
+            raise FileNotFoundError(f"Policy-input PNG evidence is missing: {path.name}")
+        with path.open("rb") as image:
+            digest = hashlib.file_digest(image, "sha256").hexdigest()
+        if digest != camera.get("png_sha256"):
+            raise ValueError(f"Policy-input PNG SHA-256 mismatch for {name}")
+    return True
+
+
 def verify_recording(manifest_path: Path, *, require_success: bool = True, allow_unreviewed: bool = False) -> dict:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if require_success and manifest.get("status") != "success":
@@ -89,6 +123,15 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
         raise ValueError(f"Unsupported recording schema: {schema}")
     if require_success and schema < 2:
         raise ValueError("Formal acceptance requires recording_schema_version=2 with raw actions and video evidence")
+    scene_style = manifest.get("scene_style")
+    scene_diagnostic = manifest.get("scene_diagnostic_only")
+    if scene_style not in (None, "factory", "no-factory-dressing"):
+        raise ValueError(f"Unknown recording scene style: {scene_style}")
+    if scene_diagnostic is not None and type(scene_diagnostic) is not bool:
+        raise ValueError("scene_diagnostic_only must be a JSON boolean")
+    formal_factory_scene = scene_style == "factory" and scene_diagnostic is False
+    if require_success and not formal_factory_scene:
+        raise ValueError("Formal acceptance requires scene_style=factory and scene_diagnostic_only=false")
 
     trace_path = manifest_path.with_suffix(".npz")
     video_path = manifest_path.with_suffix(".mp4")
@@ -214,11 +257,21 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
     if require_success and min(arm_motion.values()) < 0.1:
         raise ValueError(f"Both arms did not move meaningfully: {arm_motion}")
     video = verify_video(video_path, manifest, len(actions), video_control_steps)
-    if schema < 2 and verified_status == "success":
-        verified_status = "legacy_diagnostic_unverified"
+    policy_pngs_verified = verify_policy_input_pngs(manifest_path, manifest)
+    if verified_status == "success":
+        if schema < 2:
+            verified_status = "legacy_diagnostic_unverified"
+        elif not formal_factory_scene:
+            verified_status = "kinematic_pass_diagnostic_scene"
+        elif not require_success:
+            verified_status = "kinematic_pass_diagnostic_only"
     return {
         "status": verified_status,
+        "formal_acceptance": verified_status == "success" and require_success,
         "recording_schema_version": schema,
+        "scene_style": scene_style,
+        "scene_diagnostic_only": scene_diagnostic,
+        "formal_factory_scene": formal_factory_scene,
         "controller_source": manifest["controller_source"],
         "steps_executed": len(actions),
         "policy_calls": len(calls),
@@ -233,6 +286,7 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
         "video_sha256": video["sha256"],
         "video_frame_count": video["frame_count"],
         "video_identity_and_completeness_verified": video["complete"],
+        "first_policy_input_pngs_verified": policy_pngs_verified,
         "video_bytes": video_path.stat().st_size,
         "initial_state_split": manifest.get("initial_state_split", "unspecified"),
         "block_displacement_m": (
@@ -249,7 +303,9 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
-    parser.add_argument("--allow-failed", action="store_true", help="Audit an unsuccessful diagnostic episode")
+    parser.add_argument(
+        "--allow-failed", action="store_true", help="Audit a diagnostic episode; never return formal success"
+    )
     parser.add_argument(
         "--allow-unreviewed",
         action="store_true",

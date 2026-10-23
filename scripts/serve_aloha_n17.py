@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from twingr00t_lab.n17_sampling import configure_n17_sampling
+from twingr00t_lab.seeding import configure_policy_seed, validate_seed
 
 
 def main() -> None:
@@ -15,9 +16,15 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--flow-steps", type=int, default=4)
     parser.add_argument("--sample-average", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=42, help="Python/NumPy/Torch policy RNG seed")
     args = parser.parse_args()
     if not args.model_path.is_dir():
         parser.error("The GR00T checkpoint directory does not exist")
+    try:
+        validate_seed(args.seed)
+    except ValueError as error:
+        parser.error(str(error))
+    seed_info = configure_policy_seed(args.seed)
 
     from gr00t.data.embodiment_tags import EmbodimentTag
     from gr00t.policy.gr00t_policy import Gr00tPolicy
@@ -31,9 +38,10 @@ def main() -> None:
     configure_n17_sampling(policy, flow_steps=args.flow_steps, sample_average=args.sample_average)
     print(
         f"[n17] model={args.model_path} flow_steps={args.flow_steps} "
-        f"sample_average={args.sample_average}",
+        f"sample_average={args.sample_average} policy_seed={args.seed}",
         flush=True,
     )
+    print(f"[n17] {seed_info['seed_determinism_note']}", flush=True)
     with PolicyServer(policy=policy, host=args.host, port=args.port) as server:
         server.run()
 

@@ -14,6 +14,7 @@ from PIL import Image
 from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.n17_sampling import configure_n17_sampling
 from twingr00t_lab.policy_bridge import build_groot_observation
+from twingr00t_lab.seeding import configure_policy_seed, validate_seed
 
 
 def frame_rgb(dataset: h5py.Dataset, index: int, *, correct_legacy_jpeg_bgr: bool = False) -> np.ndarray:
@@ -129,6 +130,7 @@ def main() -> None:
     )
     parser.add_argument("--flow-steps", type=int, default=4)
     parser.add_argument("--sample-average", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--repeats",
         type=int,
@@ -140,10 +142,15 @@ def main() -> None:
         parser.error("Observation/action offset and observation indices must be non-negative")
     if args.repeats < 1:
         parser.error("--repeats must be a positive integer")
+    try:
+        validate_seed(args.seed)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     from gr00t.data.embodiment_tags import EmbodimentTag
     from gr00t.policy.gr00t_policy import Gr00tPolicy
 
+    seed_metadata = configure_policy_seed(args.seed)
     policy = Gr00tPolicy(
         embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
         model_path=str(args.checkpoint),
@@ -151,6 +158,7 @@ def main() -> None:
     )
     configure_n17_sampling(policy, flow_steps=args.flow_steps, sample_average=args.sample_average)
     result = {
+        **seed_metadata,
         "checkpoint": str(args.checkpoint),
         "flow_steps": args.flow_steps,
         "sample_average": args.sample_average,
