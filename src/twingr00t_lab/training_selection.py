@@ -69,6 +69,101 @@ def selection_plan(dataset_path: Path, episode_id: int) -> dict:
     }
 
 
+def focus_window_plan(dataset_path: Path, start: int, end: int, extra_copies: int) -> dict:
+    """Oversample an observed task phase while retaining every original window."""
+    if any(type(value) is not int for value in (start, end, extra_copies)) or not (
+        0 <= start < end and 1 <= extra_copies <= 8
+    ):
+        raise ValueError("Focus window needs integer 0 <= start < end and 1..8 extra copies")
+    root = dataset_path.resolve()
+    metadata = [
+        json.loads(line)
+        for line in (root / "meta/episodes.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not metadata:
+        raise ValueError("Focus window requires nonempty episode metadata")
+    return {
+        "mode": "phase_focus_with_full_coverage",
+        "dataset_path": str(root),
+        "source_episode_count": len(metadata),
+        "window_start_inclusive": start,
+        "window_end_exclusive": end,
+        "extra_copies": extra_copies,
+        "normalization_source": "unchanged_full_dataset_statistics",
+        "source_content": inspect_selection_sources(root),
+        "generalization_evidence": False,
+        "status": "planned_not_yet_constructed",
+    }
+
+
+def focus_training_shards(dataset: Any, plan: dict) -> dict:
+    root = Path(plan["dataset_path"])
+    if Path(dataset.dataset_path).resolve() != root:
+        raise ValueError("Focus window received an unexpected dataset path")
+    sources = inspect_selection_sources(root)
+    if any(
+        sources[name]["content_sha256"] != value["content_sha256"] for name, value in plan["source_content"].items()
+    ):
+        raise ValueError("Source metadata/statistics changed before focus selection")
+    metadata_digest = _digest(dataset.episode_loader.episodes_metadata)
+    disk_metadata = [
+        json.loads(line)
+        for line in (root / "meta/episodes.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if metadata_digest != _digest(disk_metadata):
+        raise ValueError("Loaded episode metadata does not match the audited dataset")
+    stats_digest = _digest(dataset.get_dataset_statistics())
+    expected = {i: int(dataset.get_effective_episode_length(i)) for i in range(len(disk_metadata))}
+    if any(length < 1 for length in expected.values()):
+        raise ValueError("An episode has no valid action-horizon starting points")
+    observed = {i: [] for i in expected}
+    augmented, focused_count = [], 0
+    for shard in dataset.sharded_episodes:
+        entries = list(shard)
+        for index, raw_steps in shard:
+            if index not in expected:
+                raise ValueError("Shard references unknown episode")
+            steps = np.asarray(raw_steps)
+            if steps.ndim != 1 or not np.issubdtype(steps.dtype, np.integer) or not len(steps):
+                raise ValueError("Shard timesteps must be a nonempty 1D integer array")
+            observed[index].append(steps)
+            focus = steps[(steps >= plan["window_start_inclusive"]) & (steps < plan["window_end_exclusive"])]
+            if len(focus):
+                entries.extend((index, focus.copy()) for _ in range(plan["extra_copies"]))
+                focused_count += len(focus) * plan["extra_copies"]
+        augmented.append(entries)
+    for index, length in expected.items():
+        actual = np.concatenate(observed[index]) if observed[index] else np.empty(0, dtype=np.int64)
+        if not np.array_equal(np.sort(actual), np.arange(length)):
+            raise ValueError(f"Original episode {index} coverage is missing, duplicate or out of range")
+    if focused_count < 1:
+        raise ValueError("Focus window contains no valid training starts")
+    lengths = np.asarray([sum(len(steps) for _, steps in shard) for shard in augmented], dtype=np.int64)
+    dataset.sharded_episodes, dataset.shard_lengths = augmented, lengths
+    if (
+        _digest(dataset.episode_loader.episodes_metadata) != metadata_digest
+        or _digest(dataset.get_dataset_statistics()) != stats_digest
+    ):
+        raise ValueError("Focus sampling changed metadata or normalization statistics")
+    if inspect_selection_sources(root) != sources:
+        raise ValueError("Source files changed during focus sampling")
+    return {
+        **plan,
+        "status": "verified_phase_focus",
+        "original_start_count": sum(expected.values()),
+        "extra_start_count": focused_count,
+        "effective_start_count": int(lengths.sum()),
+        "original_each_start_exactly_once": True,
+        "shard_lengths": lengths.tolist(),
+        "dataset_statistics_content_sha256": stats_digest,
+        "effective_source_content": sources,
+        "source_metadata_and_statistics_unchanged": True,
+        "dataset_class": f"{type(dataset).__module__}.{type(dataset).__qualname__}",
+    }
+
+
 def filter_training_shards(dataset: Any, plan: dict) -> dict:
     """Filter the real upstream shard table, keeping original loader indices."""
     root = Path(plan["dataset_path"])
@@ -159,7 +254,11 @@ def install_factory_selection(factory_module: Any, plan: dict, audit_path: Path)
             raise RuntimeError("Single-episode launcher expected exactly one dataset construction")
         calls += 1
         dataset = original(*args, **kwargs)
-        audit = filter_training_shards(dataset, plan)
+        audit = (
+            focus_training_shards(dataset, plan)
+            if plan["mode"] == "phase_focus_with_full_coverage"
+            else filter_training_shards(dataset, plan)
+        )
         with audit_path.open("x", encoding="utf-8") as stream:
             json.dump(audit, stream, indent=2, allow_nan=False)
             stream.write("\n")

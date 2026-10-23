@@ -142,6 +142,9 @@ def main() -> None:
             "(single-case overfit, not generalization)"
         ),
     )
+    parser.add_argument("--focus-window-start", type=int)
+    parser.add_argument("--focus-window-end", type=int)
+    parser.add_argument("--focus-window-extra-copies", type=int, default=3)
     parser.add_argument(
         "--optimizer",
         choices=("adamw_torch_fused", "adamw_bnb_8bit", "adafactor"),
@@ -180,12 +183,23 @@ def main() -> None:
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
 
+    focus_requested = args.focus_window_start is not None or args.focus_window_end is not None
+    if focus_requested and (args.focus_window_start is None or args.focus_window_end is None):
+        parser.error("Both focus-window-start and focus-window-end are required")
+    if focus_requested and args.training_episode_id is not None:
+        parser.error("Focus-window sampling cannot be combined with single-episode selection")
     sampling = {"mode": "all_episodes"}
-    if args.training_episode_id is not None:
-        from twingr00t_lab.training_selection import selection_plan
+    if args.training_episode_id is not None or focus_requested:
+        from twingr00t_lab.training_selection import focus_window_plan, selection_plan
 
         try:
-            sampling = selection_plan(args.dataset_path, args.training_episode_id)
+            sampling = (
+                focus_window_plan(
+                    args.dataset_path, args.focus_window_start, args.focus_window_end, args.focus_window_extra_copies
+                )
+                if focus_requested
+                else selection_plan(args.dataset_path, args.training_episode_id)
+            )
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
 
@@ -274,7 +288,7 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
     if not args.dry_run:
         restore_selection = None
-        if args.training_episode_id is not None:
+        if sampling["mode"] != "all_episodes":
             import gr00t.data.dataset.factory as dataset_factory
 
             from twingr00t_lab.training_selection import install_factory_selection
@@ -287,7 +301,7 @@ def main() -> None:
         finally:
             if restore_selection is not None:
                 restore_selection()
-        if args.training_episode_id is not None and not (args.output_dir / "episode_selection_audit.json").is_file():
+        if sampling["mode"] != "all_episodes" and not (args.output_dir / "episode_selection_audit.json").is_file():
             raise RuntimeError("Training returned without verifying the requested episode sampling subset")
         visual_audit = verify_saved_visual_augmentation(args.output_dir, args.visual_augmentation)
         audit_path = args.output_dir / "visual_augmentation_audit.json"

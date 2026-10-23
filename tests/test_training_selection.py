@@ -9,7 +9,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from twingr00t_lab.training_selection import filter_training_shards, install_factory_selection, selection_plan
+from twingr00t_lab.training_selection import (
+    filter_training_shards,
+    focus_window_plan,
+    install_factory_selection,
+    selection_plan,
+)
 
 
 class FakeUpstreamDataset:
@@ -151,3 +156,42 @@ def test_factory_refuses_overwriting_audit(sources):
         factory.ShardedSingleStepDataset(sources)
     restore()
     assert audit_path.read_text() == "existing"
+
+
+def test_focus_window_retains_all_starts_and_upweights_only_requested_window(sources):
+    dataset = FakeUpstreamDataset(sources)
+    before_stats = dataset.statistics
+    factory = SimpleNamespace(ShardedSingleStepDataset=lambda dataset_path: dataset)
+    audit_path = sources / "focus_audit.json"
+    restore = install_factory_selection(factory, focus_window_plan(sources, 1, 3, 3), audit_path)
+    assert factory.ShardedSingleStepDataset(sources) is dataset
+    restore()
+    audit = json.loads(audit_path.read_text())
+    assert audit["status"] == "verified_phase_focus"
+    assert audit["original_start_count"] == 9
+    assert audit["extra_start_count"] == 12
+    assert audit["effective_start_count"] == 21
+    assert dataset.statistics is before_stats
+    assert np.array_equal(dataset.shard_lengths, np.array([10, 6, 5]))
+    counts = {i: {} for i in (0, 1)}
+    for shard in dataset.sharded_episodes:
+        for episode, steps in shard:
+            for step in steps:
+                counts[episode][int(step)] = counts[episode].get(int(step), 0) + 1
+    assert counts == {0: {0: 1, 1: 4, 2: 4, 3: 1, 4: 1}, 1: {0: 1, 1: 4, 2: 4, 3: 1}}
+
+
+@pytest.mark.parametrize("start,end,copies", [(0, 0, 3), (2, 1, 3), (0, 3, 0), (0, 3, 9), (True, 3, 2)])
+def test_focus_window_rejects_invalid_bounds(sources, start, end, copies):
+    with pytest.raises(ValueError):
+        focus_window_plan(sources, start, end, copies)
+
+
+def test_focus_window_rejects_incomplete_source_coverage(sources):
+    dataset = FakeUpstreamDataset(sources)
+    dataset.sharded_episodes[0][0] = (0, np.array([0, 0]))
+    factory = SimpleNamespace(ShardedSingleStepDataset=lambda dataset_path: dataset)
+    restore = install_factory_selection(factory, focus_window_plan(sources, 1, 3, 2), sources / "focus_audit.json")
+    with pytest.raises(ValueError, match="coverage"):
+        factory.ShardedSingleStepDataset(sources)
+    restore()
