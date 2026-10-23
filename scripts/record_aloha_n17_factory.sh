@@ -9,6 +9,7 @@ model_path="${MODEL_PATH:?Set MODEL_PATH to a trained GR00T N1.7 checkpoint dire
 heldout_demo="${HELDOUT_DEMO:-${project_root}/data/replayed/blocks_ranking_rgb-vision-ep1/data/demo_0.hdf5}"
 output="${OUTPUT_VIDEO:-${project_root}/results/n17_factory/aloha_n17_online.mp4}"
 port="${POLICY_PORT:-5555}"
+action_stats="${ACTION_STATS:-${project_root}/data/lerobot/blocks_ranking_rgb-train/meta/stats.json}"
 
 [[ -d "${model_path}" && -f "${heldout_demo}" ]] || {
   echo "The trained checkpoint and held-out initial-state demo must exist." >&2
@@ -70,10 +71,14 @@ camera_args=()
 if [[ "${POLICY_CAMERA_BGR_SWAP:-0}" == 1 ]]; then
   camera_args=(--policy-camera-bgr-swap)
 fi
+timing_args=()
+if [[ -n "${EXPECTED_POLICY_FPS:-}" ]]; then
+  timing_args=(--expected-policy-fps "${EXPECTED_POLICY_FPS}")
+fi
 "${sim_python}" scripts/run_aloha_n17_closedloop.py "${heldout_demo}" \
   --output "${output}" \
   --checkpoint "${model_path}" \
-  --action-stats "${project_root}/data/lerobot/blocks_ranking_rgb-train/meta/stats.json" \
+  --action-stats "${action_stats}" \
   --port "${port}" \
   --max-steps "${MAX_STEPS:-1500}" \
   --execute-steps "${EXECUTE_STEPS:-8}" \
@@ -86,6 +91,7 @@ fi
   --max-gripper-step "${MAX_GRIPPER_STEP:-0.008}" \
   "${prompt_args[@]}" \
   "${camera_args[@]}" \
+  "${timing_args[@]}" \
   --headless \
   --environment \
     manip_eval_tasks.examples.manipulation.blocks_ranking_rgb_twingroot_environment:BlocksRankingRgbEnvironment \

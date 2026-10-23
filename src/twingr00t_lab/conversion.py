@@ -146,7 +146,12 @@ def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
 
 
 def encode_video(
-    dataset: Any, path: Path, *, fps: float, correct_legacy_jpeg_bgr: bool = False
+    dataset: Any,
+    path: Path,
+    *,
+    fps: float,
+    correct_legacy_jpeg_bgr: bool = False,
+    frame_limit: int | None = None,
 ) -> tuple[int, int, int]:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required to encode LeRobot videos")
@@ -155,7 +160,9 @@ def encode_video(
     if not encoded_frames and not raw_frames:
         raise ValueError(f"Expected raw RGB (T, H, W, 3) or encoded JPEG (T,), got {dataset.shape} {dataset.dtype}")
 
-    frames = dataset.shape[0]
+    frames = dataset.shape[0] if frame_limit is None else frame_limit
+    if not 0 < frames <= dataset.shape[0]:
+        raise ValueError("frame_limit must select a nonempty prefix of the camera recording")
     if encoded_frames:
         try:
             from PIL import Image
@@ -208,7 +215,7 @@ def encode_video(
                 process.stdin.write(np.ascontiguousarray(restored_rgb).tobytes(order="C"))
         else:
             for start in range(0, frames, 16):
-                batch = np.asarray(dataset[start : start + 16], dtype=np.uint8)
+                batch = np.asarray(dataset[start : min(start + 16, frames)], dtype=np.uint8)
                 process.stdin.write(batch.tobytes(order="C"))
     except BrokenPipeError:
         pass
@@ -273,9 +280,12 @@ def convert_dataset(
     task_fallback: str | None,
     manifest_path: Path | None,
     correct_legacy_jpeg_bgr: bool = False,
+    observation_action_offset: int = 0,
 ) -> dict[str, Any]:
     if fps <= 0:
         raise ValueError("fps must be positive")
+    if observation_action_offset < 0:
+        raise ValueError("observation_action_offset must be non-negative")
     if output_dir.exists():
         raise FileExistsError(f"Refusing to replace existing output: {output_dir}")
 
@@ -308,9 +318,20 @@ def convert_dataset(
                 action = collapse_isaac_action(handle[f"{POLICY_ROOT}/actions"][:])
                 if state.shape[0] != action.shape[0]:
                     raise ValueError(f"State/action frame mismatch in {demo_path}")
+                source_frames = len(state)
+                aligned_frames = source_frames - observation_action_offset
+                if aligned_frames < 1:
+                    raise ValueError(f"Action offset leaves no paired frames in {demo_path}")
+                # A post-step recorder pairs o[t+1] with the already-executed
+                # a[t]. Shift the target forward *within this episode*, keeping
+                # RGB and measured state together and dropping the unpaired tail.
+                state = state[:aligned_frames]
+                action = action[observation_action_offset:]
 
                 camera_group = handle[CAMERA_ROOT]
                 for video_name, hdf5_name in CAMERA_MAP.items():
+                    if camera_group[hdf5_name].shape[0] != source_frames:
+                        raise ValueError(f"Camera frame mismatch for {hdf5_name} in {demo_path}")
                     video_path = (
                         staging
                         / "videos"
@@ -323,6 +344,7 @@ def convert_dataset(
                         video_path,
                         fps=fps,
                         correct_legacy_jpeg_bgr=correct_legacy_jpeg_bgr,
+                        frame_limit=aligned_frames,
                     )
                     if camera_frames != state.shape[0]:
                         raise ValueError(f"Camera frame mismatch for {hdf5_name} in {demo_path}")
@@ -368,6 +390,9 @@ def convert_dataset(
         "videos": len(episodes) * len(CAMERA_MAP),
         "video_codec": "h264",
         "correct_legacy_jpeg_bgr": correct_legacy_jpeg_bgr,
+        "observation_action_offset": observation_action_offset,
+        "alignment": "observation[i] -> action[i + observation_action_offset] within each episode",
+        "discarded_tail_frames_per_episode": observation_action_offset,
     }
     if manifest_path:
         write_json(manifest_path, manifest)
@@ -385,6 +410,12 @@ def main() -> None:
     parser.add_argument("--task-fallback")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--correct-legacy-jpeg-bgr", action="store_true")
+    parser.add_argument(
+        "--observation-action-offset",
+        type=int,
+        default=0,
+        help="Pair state/image i with action i+offset; use 1 for post-step recordings, dropping each episode's tail",
+    )
     args = parser.parse_args()
     manifest = convert_dataset(
         input_dir=args.input_dir,
@@ -396,6 +427,7 @@ def main() -> None:
         task_fallback=args.task_fallback,
         manifest_path=args.manifest,
         correct_legacy_jpeg_bgr=args.correct_legacy_jpeg_bgr,
+        observation_action_offset=args.observation_action_offset,
     )
     print(json.dumps(manifest, indent=2))
 

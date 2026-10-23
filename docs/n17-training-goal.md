@@ -1,0 +1,50 @@
+# N1.7 在线抓取与正式发布目标
+
+状态：进行中（2026-10-23）。
+
+最终成果为 GR00T N1.7 驱动 ALOHA 双臂完成工厂分拣的在线闭环视频，以及中文技术框架图、可复现命令和物理验收证据。视频中的动作必须来自本轮观测条件下的模型预测。
+
+## 训练与评估路线
+
+1. 校正录制时序。现有 HDF5 在执行动作后记录状态与图像，因此新数据使用 `observation[i] -> action[i+1]`，逐轨迹裁尾，不跨轨迹拼接。保留原数据和原 checkpoint。
+2. 在新目录重新编码 RGB、生成状态/动作统计与相对动作统计。对现有批次的关节位置和速度进行时间间隔诊断，结果支持约 16 ms 记录间隔，因此新元数据为 62.5 Hz。在线运行须同时记录实际 `env.step_dt`；视频帧率单独计算。
+3. 从现存 RGB checkpoint-500 分段续训。首段 200 步、每 100 步保存，batch 1、梯度累积 8、Adafactor、BF16、梯度检查点、学习率 5e-5、state dropout 0。这是一张 24 GB RTX 4090 上的实验配置，是否可用以实际显存和梯度检查为准。
+4. 先比较训练轨迹与留出轨迹的动作误差，再做闭环。检查点编号和训练 loss 不作为任务成功证据。若动作未抓住目标，分析输入、动作和物体轨迹后再调整训练。
+5. 正式验收检查模型调用与执行动作的对应关系、物体抬起历史、双臂操作、最终目标排列与稳定窗口，并人工检查同一轨迹的完整视频。运动学证据不等同于直接的夹爪接触传感。
+6. 成功后制作中文架构图，导出完整多机位视频，将 README、复现说明、模型版本和运行证据更新至 GitHub 主文档。失败诊断视频不得展示为已完成任务。
+
+## 当前服务器工作目录
+
+项目：`/home/ubuntu/mycode/robotwin-gr00t-aloha`
+
+```bash
+cd /home/ubuntu/mycode/robotwin-gr00t-aloha
+bash scripts/train_n17_aligned_stage.sh
+```
+
+首段数据目录：`data/lerobot/blocks_ranking_rgb-aligned-v1`。
+
+首段权重目录：`artifacts/checkpoints/n17-aligned-v1`。
+
+首段运行日志：`results/logs/n17_aligned_stage1_20261023.log`。
+
+完整训练集来自 `blocks_ranking_rgb-vision-batch` 的 source episode 0–8；留出场景和训练场景必须在结果中分别标注。后续发布需保存并核对训练、验证、测试的 source episode ID 和原始来源，不能只比较导出目录名。
+
+## 2026-10-23 实际进展
+
+- 首段 200 步训练完成，运行约 424 秒，观测显存约 20,380 MiB。
+- `n17_aligned200_train0_20261023` 是真实模型在线诊断，不是成功成果。训练场景运行 1,500 控制步、188 次推理，没有满足抓取条件；红、绿方块未搬动，蓝方块最多发生约 5.5 cm 位移。
+- 同一 checkpoint 的离线训练帧 0/50/100/200/300，16 步动作窗口混合维度 MAE 分别约 0.134/0.065/0.067/0.058/0.060。该指标混合弧度与米，不能解释为统一的物理误差，也不能替代闭环验收。
+- 第二段从首段 checkpoint-200 加载权重，使用新优化器与调度器再训练 1,000 步，checkpoint 每 500 步保存、最多保留一个；输出 `artifacts/checkpoints/n17-aligned-v2`，日志 `results/logs/n17_aligned_stage2_20261023.log`。截至此记录尚未完成，不能声称已改善成功率。
+- 正式录制证据升级到 schema 2：保存原始动作块、有效限幅边界、执行动作、物体与机器人实测状态、逐帧对应控制步、MP4 哈希和实际帧数。验收独立重算动作链路和抓取/稳定放置条件，最终还必须完成视频复核。
+
+第二段复现命令：
+
+```bash
+BASE_MODEL_PATH="$PWD/artifacts/checkpoints/n17-aligned-v1/checkpoint-200" \
+OUTPUT_DIR="$PWD/artifacts/checkpoints/n17-aligned-v2" \
+MAX_STEPS=1000 SAVE_STEPS=500 SAVE_TOTAL_LIMIT=1 \
+bash scripts/train_n17_aligned_stage.sh
+```
+
+训练脚本拒绝覆盖非空输出目录。以上记录只用于追踪训练与诊断，不是正式成功声明。

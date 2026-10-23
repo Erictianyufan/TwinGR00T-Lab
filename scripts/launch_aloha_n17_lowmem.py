@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -21,6 +22,42 @@ def free_vram_mib() -> int:
         text=True,
     )
     return min(int(line.strip()) for line in output.splitlines() if line.strip())
+
+
+def inspect_checkpoint_processor(checkpoint: str) -> dict:
+    """Read the action contract from the processor, not the model config.
+
+    N1.7's fine-tuning pipeline overrides the processor's relative-action flag
+    independently of model.config. A false flag in final_model_config.json
+    therefore does not establish that the learned actions are absolute.
+    """
+    root = Path(checkpoint).expanduser()
+    if not root.exists():
+        if root.is_absolute() or checkpoint.startswith("."):
+            raise FileNotFoundError(f"Local starting checkpoint does not exist: {root}")
+        return {"source": checkpoint, "status": "remote_not_inspected", "use_relative_action": None}
+    # Match Gr00tPolicy's precedence when both layouts are present.
+    config_path = root / "processor_config.json"
+    if not config_path.is_file():
+        config_path = root / "processor" / "processor_config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Starting checkpoint has no processor_config.json: {root}")
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    processor = payload.get("processor_kwargs")
+    if not isinstance(processor, dict):
+        raise ValueError(f"Invalid processor_kwargs in {config_path}")
+    # Older processor files omit the flag; the pinned N1.7 loader defaults to False.
+    relative = processor.get("use_relative_action", False)
+    if not isinstance(relative, bool):
+        raise ValueError(f"use_relative_action must be a JSON boolean in {config_path}")
+    return {
+        "source": str(config_path.resolve()),
+        "status": "inspected",
+        "use_relative_action": relative,
+        "relative_flag_explicit": "use_relative_action" in processor,
+        "max_action_horizon": processor.get("max_action_horizon"),
+        "state_dropout_prob": processor.get("state_dropout_prob"),
+    }
 
 
 def main() -> None:
@@ -34,6 +71,7 @@ def main() -> None:
     parser.add_argument("--save-total-limit", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument(
         "--optimizer",
         choices=("adamw_torch_fused", "adamw_bnb_8bit", "adafactor"),
@@ -59,6 +97,12 @@ def main() -> None:
         parser.error("Refusing to overwrite a nonempty training output directory")
     if not 0.0 <= args.state_dropout_prob < 1.0:
         parser.error("state-dropout-prob must be in [0, 1)")
+    if not math.isfinite(args.learning_rate) or args.learning_rate <= 0:
+        parser.error("learning-rate must be finite and positive")
+    try:
+        starting_processor = inspect_checkpoint_processor(args.base_model_path)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
 
     available = free_vram_mib()
     if available < args.min_free_mib:
@@ -106,6 +150,7 @@ def main() -> None:
 
     config.training.start_from_checkpoint = args.base_model_path
     config.training.optim = args.optimizer
+    config.training.learning_rate = args.learning_rate
     config.training.num_gpus = 1
     config.training.global_batch_size = args.batch_size
     config.training.gradient_accumulation_steps = args.gradient_accumulation_steps
@@ -129,7 +174,12 @@ def main() -> None:
         "max_steps": args.max_steps,
         "save_total_limit": args.save_total_limit,
         "optimizer": args.optimizer,
+        "learning_rate": args.learning_rate,
         "state_dropout_prob": args.state_dropout_prob,
+        "starting_checkpoint_processor": starting_processor,
+        "requested_training_use_relative_action": config.model.use_relative_action,
+        "effective_processor_config": str(args.output_dir.resolve() / "processor" / "processor_config.json"),
+        "training_initialization": "checkpoint_weights_with_new_optimizer_and_schedule",
         "trainable": ["projector", "action_head"],
         "experimental_low_memory": True,
     }

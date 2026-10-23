@@ -7,7 +7,6 @@ with ``--model-path`` pointing at a post-trained N1.7 checkpoint.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import time
@@ -34,8 +33,11 @@ from replay_live_multiview import (
     teleport,
 )
 
+from twingr00t_lab.dataset import collapse_isaac_action
+from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
 from twingr00t_lab.policy_bridge import build_groot_observation, groot_action_to_isaac, to_numpy
 from twingr00t_lab.policy_client import PolicyTransportClient
+from twingr00t_lab.recording_evidence import action_sha256, video_evidence
 
 
 def spawn_factory_background() -> None:
@@ -78,6 +80,15 @@ def success_from_term(env: gym.Env, success_term: object) -> bool:
     return bool(result)
 
 
+def measured_state(policy: dict) -> np.ndarray:
+    return np.concatenate(
+        [
+            to_numpy(policy[key]).reshape(-1)
+            for key in ("left_arm_pos", "left_gripper_pos", "right_arm_pos", "right_gripper_pos")
+        ]
+    ).astype(np.float32)
+
+
 def action_bounds_from_stats(path: Path) -> tuple[np.ndarray, np.ndarray]:
     """Expand the training split's 14-D empirical limits to 16 Isaac joints."""
     statistics = json.loads(path.read_text(encoding="utf-8"))["action"]
@@ -103,6 +114,9 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=1500)
     parser.add_argument("--execute-steps", type=int, default=8)
     parser.add_argument("--record-every", type=int, default=2)
+    parser.add_argument(
+        "--expected-policy-fps", type=float, help="Expected action rate; defaults to dataset info.json FPS"
+    )
     parser.add_argument("--action-alpha", type=float, default=0.2, help="Causal low-pass coefficient for joint targets")
     parser.add_argument("--max-joint-step", type=float, default=0.06, help="Maximum arm-joint change per control step")
     parser.add_argument("--max-gripper-step", type=float, default=0.008, help="Maximum gripper change per control step")
@@ -136,6 +150,9 @@ def main() -> None:
         parser.error("Refusing to overwrite existing recording or manifest")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     action_lower, action_upper = action_bounds_from_stats(args.action_stats)
+    # Persist the effective clipping limits in the canonical logical order.
+    # These include the existing arm margin; this does not alter the controller.
+    logical_clip_limits = collapse_isaac_action(np.stack((action_lower, action_upper)))
 
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
@@ -143,7 +160,14 @@ def main() -> None:
     process = None
     actions_executed: list[np.ndarray] = []
     block_positions: list[np.ndarray] = []
+    block_linear_velocities: list[np.ndarray] = []
+    block_angular_velocities: list[np.ndarray] = []
+    eef_positions: list[np.ndarray] = []
+    measured_states: list[np.ndarray] = []
+    sorting_flags: list[bool] = []
     policy_chunks: list[np.ndarray] = []
+    raw_policy_chunks: list[np.ndarray] = []
+    video_control_steps: list[int] = []
     policy_calls: list[dict] = []
     start = time.monotonic()
     try:
@@ -156,6 +180,11 @@ def main() -> None:
         success_term = env_cfg.terminations.success
         if success_term is None:
             raise RuntimeError("Online recording requires an explicit task success predicate")
+        # Evaluate success ourselves after a stable-placement window. An auto
+        # reset would replace the final physical evidence with a fresh scene.
+        env_cfg.terminations.success = None
+        if hasattr(env_cfg.terminations, "time_out"):
+            env_cfg.terminations.time_out = None
         env = gym.make(env_name, cfg=env_cfg).unwrapped
         spawn_factory_background()
         env.reset()
@@ -166,6 +195,11 @@ def main() -> None:
         block_names = sorted(name for name in env.scene.rigid_objects if name.startswith("block"))
         if len(block_names) != 3:
             raise RuntimeError(f"Factory sorting requires three block objects, found {block_names}")
+        initial_block_positions = np.stack(
+            [to_numpy(env.scene.rigid_objects[name].data.root_pos_w[0]) for name in block_names]
+        ).astype(np.float32)
+        frame_names = list(env.scene["ee_frame"].data.target_frame_names)
+        eef_indices = [frame_names.index(name) for name in ("left_end_effector", "right_end_effector")]
         missing = set(CAMERA_KEYS) - set(observation.get("camera_obs", {}))
         if missing:
             raise RuntimeError(f"Five-camera recording is unavailable: {sorted(missing)}")
@@ -207,6 +241,14 @@ def main() -> None:
         if not prompt.strip():
             raise RuntimeError("The policy task instruction is empty")
         control_fps = 1.0 / float(env.step_dt)
+        info_path = args.action_stats.with_name("info.json")
+        dataset_fps = json.loads(info_path.read_text(encoding="utf-8"))["fps"] if info_path.is_file() else None
+        expected_fps = args.expected_policy_fps if args.expected_policy_fps is not None else dataset_fps
+        if expected_fps is None or not np.isclose(float(expected_fps), control_fps, rtol=0.01):
+            raise RuntimeError(
+                f"Action cadence mismatch: simulator={control_fps:g} Hz, dataset/expected={expected_fps}. "
+                "Verify actual recording interval and set --expected-policy-fps explicitly if metadata was wrong."
+            )
         record_fps = control_fps / args.record_every
         ffmpeg_args = ffmpeg_command(args.output, record_fps)
         ffmpeg_args[ffmpeg_args.index("+faststart")] = "+frag_keyframe+empty_moov+default_base_moof"
@@ -218,6 +260,7 @@ def main() -> None:
         assert process.stdin is not None
 
         success = False
+        stop_reason = "max_steps"
         chunk = np.empty((0, 16), dtype=np.float32)
         chunk_index = 0
         with PolicyTransportClient(args.host, args.port) as client:
@@ -241,6 +284,7 @@ def main() -> None:
                     if not len(raw_chunk):
                         raise RuntimeError("Model returned an empty action chunk")
                     chunk = np.clip(raw_chunk, action_lower, action_upper)
+                    raw_policy_chunks.append(np.ascontiguousarray(raw_chunk.copy(), dtype=np.float32))
                     policy_chunks.append(np.ascontiguousarray(chunk.copy()))
                     clipped_values = int(np.count_nonzero(chunk != raw_chunk))
                     if clipped_values:
@@ -258,7 +302,8 @@ def main() -> None:
                             "latency_s": round(time.monotonic() - inference_start, 3),
                             "raw_abs_max": round(float(np.max(np.abs(raw_chunk))), 4),
                             "clipped_values": clipped_values,
-                            "action_sha256": hashlib.sha256(chunk.tobytes()).hexdigest(),
+                            "action_sha256": action_sha256(chunk),
+                            "raw_action_sha256": action_sha256(raw_chunk),
                         }
                     )
 
@@ -276,6 +321,19 @@ def main() -> None:
                         [to_numpy(env.scene.rigid_objects[name].data.root_pos_w[0]) for name in block_names]
                     ).astype(np.float32)
                 )
+                block_linear_velocities.append(
+                    np.stack(
+                        [to_numpy(env.scene.rigid_objects[name].data.root_lin_vel_w[0]) for name in block_names]
+                    ).astype(np.float32)
+                )
+                block_angular_velocities.append(
+                    np.stack(
+                        [to_numpy(env.scene.rigid_objects[name].data.root_ang_vel_w[0]) for name in block_names]
+                    ).astype(np.float32)
+                )
+                eef_positions.append(to_numpy(env.scene["ee_frame"].data.target_pos_w[0])[eef_indices].copy())
+                measured_states.append(measured_state(observation["policy"]))
+                sorting_flags.append(success_from_term(env, success_term))
                 if step % args.record_every == 0:
                     frame = compose_frame(
                         observation["camera_obs"],
@@ -290,18 +348,31 @@ def main() -> None:
                         ),
                     )
                     process.stdin.write(np.asarray(frame, dtype=np.uint8).tobytes())
-                if (step + 1) % 25 == 0 and success_from_term(env, success_term):
-                    success = True
-                    print(f"[policy] simulator success at step {step + 1}", flush=True)
-                    break
+                    video_control_steps.append(step + 1)
                 if bool(torch.as_tensor(truncated).any()):
+                    stop_reason = "unexpected_truncation"
                     print(f"[policy] simulator truncated at step {step + 1}", flush=True)
                     break
                 if bool(torch.as_tensor(terminated).any()):
-                    # This task config has only the explicit success termination.
-                    success = True
+                    stop_reason = "unexpected_termination"
                     print(f"[policy] simulator terminated at step {step + 1}", flush=True)
                     break
+                if (step + 1) % 25 == 0:
+                    acceptance = evaluate_grasp_sorting(
+                        initial_block_positions=initial_block_positions,
+                        block_positions=np.stack(block_positions),
+                        block_linear_velocities=np.stack(block_linear_velocities),
+                        block_angular_velocities=np.stack(block_angular_velocities),
+                        eef_positions=np.stack(eef_positions),
+                        measured_states=np.stack(measured_states),
+                        sorting_predicate=np.asarray(sorting_flags),
+                        step_dt=float(env.step_dt),
+                    )
+                    if acceptance["success"]:
+                        success = True
+                        stop_reason = "grasp_sort_and_stable_placement"
+                        print(f"[policy] kinematic grasp/sort gate passed at step {step + 1}", flush=True)
+                        break
                 if (step + 1) % 100 == 0:
                     print(f"[policy] step={step + 1} calls={len(policy_calls)}", flush=True)
 
@@ -309,16 +380,59 @@ def main() -> None:
         stderr = process.stderr.read().decode("utf-8", errors="replace") if process.stderr else ""
         if process.wait():
             raise RuntimeError(f"ffmpeg recording failed: {stderr}")
+        video_metadata = video_evidence(
+            args.output,
+            steps=len(actions_executed),
+            record_every=args.record_every,
+            record_fps=record_fps,
+            frames_written=len(video_control_steps),
+        )
+        acceptance = evaluate_grasp_sorting(
+            initial_block_positions=initial_block_positions,
+            block_positions=np.stack(block_positions),
+            block_linear_velocities=np.stack(block_linear_velocities),
+            block_angular_velocities=np.stack(block_angular_velocities),
+            eef_positions=np.stack(eef_positions),
+            measured_states=np.stack(measured_states),
+            sorting_predicate=np.asarray(sorting_flags),
+            step_dt=float(env.step_dt),
+        )
+        success = acceptance["success"] and stop_reason not in ("unexpected_truncation", "unexpected_termination")
         np.savez_compressed(
             args.output.with_suffix(".npz"),
             actions=np.stack(actions_executed),
             policy_chunks=np.stack(policy_chunks),
+            raw_policy_chunks=np.stack(raw_policy_chunks),
+            clip_lower=logical_clip_limits[0],
+            clip_upper=logical_clip_limits[1],
+            video_control_steps=np.asarray(video_control_steps, dtype=np.int64),
             initial_action=initial_action,
             block_positions=np.stack(block_positions),
             block_names=np.asarray(block_names),
+            initial_block_positions=initial_block_positions,
+            block_linear_velocities=np.stack(block_linear_velocities),
+            block_angular_velocities=np.stack(block_angular_velocities),
+            eef_positions=np.stack(eef_positions),
+            measured_states=np.stack(measured_states),
+            sorting_predicate=np.asarray(sorting_flags, dtype=bool),
         )
         manifest = {
+            "recording_schema_version": 2,
+            "action_evidence": {
+                "raw_policy_chunks": "float32 (calls, executed_horizon, 16), decoded and expanded before clipping",
+                "policy_chunks": "float32 same shape, clipped targets before smoothing",
+                "clip_lower_upper": "float32 (14,), effective bounds including arm margin",
+                "logical_order": "left_arm[6], left_gripper[1], right_arm[6], right_gripper[1]",
+                "physical_order": "left_arm[6], left_gripper[2], right_arm[6], right_gripper[2]",
+                "hash_format": "SHA256 C-order float32 physical-joint bytes",
+                "last_chunk": "may contain unused trailing targets after episode stops",
+                "video_control_steps": "int64 1-based executed control steps captured after env.step",
+            },
+            **video_metadata,
             "status": "success" if success else "task_not_completed",
+            "stop_reason": stop_reason,
+            "acceptance": acceptance,
+            "video_review": "pending",
             "controller_source": "GR00T_N1.7_model_inference",
             "replay_used": False,
             "recorded_actions_used_after_reset": False,
@@ -337,6 +451,10 @@ def main() -> None:
                 name: block_positions[-1][index].round(5).tolist() for index, name in enumerate(block_names)
             },
             "record_fps": record_fps,
+            "control_fps": control_fps,
+            "step_dt": float(env.step_dt),
+            "dataset_fps": dataset_fps,
+            "expected_policy_fps": expected_fps,
             "action_safety": {
                 "bounds_from": str(args.action_stats),
                 "low_pass_alpha": args.action_alpha,
