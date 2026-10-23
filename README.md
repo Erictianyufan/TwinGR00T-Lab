@@ -60,6 +60,19 @@ stop at the pickup zone, and are sorted through finger collision and friction.
 See [block stability](docs/block-stability.md) and
 [parcel sorting](docs/parcel-sorting-demo.md) for the acceptance contracts.
 
+## N1.7 双臂工厂分拣：训练与闭环验证中
+
+![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
+
+这张图说明实际训练、在线推理和验收流程，**不代表已经获得 N1.7 成功 Demo**。
+目前已完成时序对齐数据转换，并在单张 24 GB RTX 4090 上运行低显存后训练。
+已检查的 200 步和后续 1,000 步版本能够在线输出并执行动作，但尚未完成抓取分拣；
+当前正在继续训练和检查视觉输入。训练 loss 下降、模型调用成功或生成 MP4 均不作为任务成功依据。
+
+正式成果需要同一条轨迹通过：原始模型动作到执行动作的核验、双臂操作与物体抬起检查、
+最终放置及稳定窗口检查，以及完整录像复核。去除工厂装饰的对照只用于诊断，不能替代工厂演示。
+详细配置、失败记录、资源要求和复现命令见 [N1.7 训练与验收目标](docs/n17-training-goal.md)。
+
 ## G1 在线推理演示：纸箱从货架搬入蓝色料盘
 
 [![点击观看 G1 在线推理双机位视频](docs/media/g1_n16_live_preview.png)](media/g1_n16_live_success_cutdown.mp4)
@@ -144,7 +157,7 @@ flowchart LR
 Green nodes are on the currently verified presentation path. Yellow nodes are
 implemented or planned experiment interfaces and must not be interpreted as a
 validated GR00T result for the RoboTwin ALOHA route. The separate G1 N1.6
-inference result below does not validate that ALOHA route. The detailed component and deployment view is in
+inference result above does not validate that ALOHA route. The detailed component and deployment view is in
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Evidence and project status
@@ -155,8 +168,8 @@ inference result below does not validate that ALOHA route. The detailed componen
 | Warehouse parcel sorting | Verified replay | Physical conveyor traction, finger contacts, lift, hold, release, and settling traces |
 | G1 shelf-to-bin box transfer | **Verified live GR00T N1.6 inference** | Official Isaac Lab-Arena G1 task, seed 10; one completed episode at step 1001, simulator `success=true` and `overall_score=1.0`. [Video](media/g1_n16_live_success_cutdown.mp4) · [raw head camera](media/g1_n16_head_rgb_episode0.mp4) · [run record](docs/g1-n16-single-gpu.md) |
 | Dataset audit and conversion | Implemented | 14-D state/action contract, camera and episode consistency checks |
-| GR00T policy transport | Implemented interface | Numeric request/response boundary; not a closed-loop learning result |
-| GR00T N1.7 post-training | Experimental | Requires a separate GPU with at least 40 GB VRAM |
+| GR00T N1.7 online ALOHA control | Experimental, task not yet completed | Model-generated actions have been executed in closed loop; checked episodes did not pass grasp/sorting acceptance |
+| GR00T N1.7 post-training | Experimental | Default deployment reserves 40+ GB; the experimental single-24-GB Adafactor/BF16 path has completed training segments, not a successful task. [Configuration and evidence](docs/n17-training-goal.md) |
 | G1 home-service composition | Experimental archive | Kept outside the accepted ALOHA-only showcase |
 | RoboTwin Isaac Sim 6 / Isaac Lab 3 migration | Planned track | The separate G1 Arena result must not be pooled with the strict RoboTwin Sim 5.1 track |
 
