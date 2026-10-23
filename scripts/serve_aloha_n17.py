@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from pathlib import Path
 
+from twingr00t_lab.model_identity import bind_action_identity, build_served_identity
 from twingr00t_lab.n17_sampling import configure_n17_sampling
 from twingr00t_lab.seeding import configure_policy_seed, validate_seed
 
@@ -36,13 +38,25 @@ def main() -> None:
         device="cuda:0",
     )
     configure_n17_sampling(policy, flow_steps=args.flow_steps, sample_average=args.sample_average)
+    identity = build_served_identity(
+        policy, args.model_path, flow_steps=args.flow_steps, sample_average=args.sample_average, seed=args.seed,
+    )
     print(
         f"[n17] model={args.model_path} flow_steps={args.flow_steps} "
         f"sample_average={args.sample_average} policy_seed={args.seed}",
         flush=True,
     )
     print(f"[n17] {seed_info['seed_determinism_note']}", flush=True)
+    print(
+        f"[n17] model_identity_id={identity['identity_id']} "
+        f"checkpoint_id={identity['checkpoint']['checkpoint_id']}",
+        flush=True,
+    )
     with PolicyServer(policy=policy, host=args.host, port=args.port) as server:
+        server.register_endpoint("get_model_identity", lambda: deepcopy(identity), requires_input=False)
+        server.register_endpoint(
+            "get_action", bind_action_identity(policy.get_action, identity["identity_id"]), requires_input=True,
+        )
         server.run()
 
 

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from twingr00t_lab.grasp_acceptance import GraspAcceptanceConfig, evaluate_grasp_sorting
+from twingr00t_lab.model_identity import build_served_identity, checkpoint_identity
 
 
 def valid_evidence():
@@ -118,12 +119,32 @@ def recording_fixture(tmp_path, monkeypatch):
     evidence = valid_evidence()
     actions = np.tile(np.linspace(0, 0.2, 100)[:, None], (1, 16)).astype(np.float32)
     chunks = actions.reshape(10, 10, 16)
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    model_config = {
+        "model_type": "Gr00tN1d7",
+        "architectures": ["Gr00tN1d7"],
+        "model_name": "nvidia/Cosmos-Reason2-2B",
+    }
+    (checkpoint / "config.json").write_text(json.dumps(model_config))
+    for name in ("processor_config.json", "statistics.json", "embodiment_id.json"):
+        (checkpoint / name).write_text("{}")
+    (checkpoint / "model.safetensors").write_bytes(b"small CPU-only identity fixture")
+    model = type("Gr00tN1d7", (), {})()
+    model.config = SimpleNamespace(**model_config)
+    model.action_head = SimpleNamespace(num_inference_timesteps=8)
+    policy = SimpleNamespace(model=model, processor=SimpleNamespace(), embodiment_tag="new_embodiment")
+    identity = build_served_identity(policy, checkpoint, flow_steps=8, sample_average=1, seed=42)
     manifest = {
         "recording_schema_version": 2,
         "scene_style": "factory",
         "scene_diagnostic_only": False,
         "status": "success",
         "controller_source": "GR00T_N1.7_model_inference",
+        "model_identity": identity,
+        "expected_checkpoint_identity": checkpoint_identity(checkpoint),
+        "model_sampling": {"flow_steps": 8, "sample_average": 1},
+        "policy_seed": 42,
         "replay_used": False,
         "recorded_actions_used_after_reset": False,
         "steps_executed": 100,
@@ -144,6 +165,7 @@ def recording_fixture(tmp_path, monkeypatch):
                 "executed_horizon": 10,
                 "action_sha256": hashlib.sha256(chunk.tobytes()).hexdigest(),
                 "raw_action_sha256": hashlib.sha256(chunk.tobytes()).hexdigest(),
+                "model_identity_id": identity["identity_id"],
             }
             for chunk in chunks
         ],
@@ -198,6 +220,120 @@ def test_verifier_recomputes_acceptance_and_rejects_reset_or_tampering(recording
     altered["acceptance"]["max_lift_m"][0] = 99
     path.write_text(json.dumps(altered))
     with pytest.raises(ValueError, match="disagrees"):
+        verifier.verify_recording(path)
+
+
+def test_one_millimeter_lift_with_relaxed_manifest_threshold_is_diagnostic_only(recording_fixture):
+    verifier, path, manifest = recording_fixture
+    trace_path = path.with_suffix(".npz")
+    with np.load(trace_path) as trace:
+        arrays = dict(trace)
+    for block, start in enumerate((10, 30, 50)):
+        arrays["block_positions"][start : start + 10, block, 2] = 0.766
+        arm = 0 if block == 0 else 1
+        arrays["eef_positions"][start : start + 10, arm] = arrays["block_positions"][start : start + 10, block] + [
+            0,
+            0,
+            0.04,
+        ]
+    arrays["block_linear_velocities"] = (
+        np.diff(arrays["block_positions"], axis=0, prepend=arrays["initial_block_positions"][None]) / 0.02
+    )
+    evidence = {key: arrays[key] for key in valid_evidence()}
+    assert evaluate_grasp_sorting(**evidence, step_dt=0.02)["success"] is False
+    weak_report = evaluate_grasp_sorting(**evidence, step_dt=0.02, config=GraspAcceptanceConfig(min_lift_m=0.0005))
+    assert weak_report["success"] is True
+    np.testing.assert_allclose(weak_report["max_lift_m"], [0.001] * 3)
+    manifest["acceptance"] = weak_report
+    np.savez_compressed(trace_path, **arrays)
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="official default GraspAcceptanceConfig"):
+        verifier.verify_recording(path)
+    result = verifier.verify_recording(path, require_success=False)
+    assert result["grasp_acceptance"]["success"] is True
+    assert result["status"] == "kinematic_pass_diagnostic_only"
+    assert result["formal_acceptance"] is False
+
+
+@pytest.mark.parametrize("config", [None, {}, {"min_lift_m": 0.025}])
+def test_formal_acceptance_rejects_missing_or_partial_default_config(recording_fixture, config):
+    verifier, path, manifest = recording_fixture
+    if config is None:
+        manifest["acceptance"].pop("config")
+    else:
+        manifest["acceptance"]["config"] = config
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="official default GraspAcceptanceConfig"):
+        verifier.verify_recording(path)
+
+
+def test_formal_identity_requires_service_checkpoint_and_every_response(recording_fixture):
+    verifier, path, manifest = recording_fixture
+    result = verifier.verify_recording(path)
+    assert result["model_identity_verified"] is True
+    assert result["model_identity_id"] == manifest["model_identity"]["identity_id"]
+    assert result["checkpoint_id"] == manifest["expected_checkpoint_identity"]["checkpoint_id"]
+    manifest.pop("model_identity")
+    manifest.pop("expected_checkpoint_identity")
+    for call in manifest["policy_calls"]:
+        call.pop("model_identity_id")
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="Formal acceptance requires verified model identity"):
+        verifier.verify_recording(path)
+    result = verifier.verify_recording(path, require_success=False)
+    assert result["model_identity_verified"] is False
+    assert result["model_identity_status"] == "legacy_identity_missing_unverified"
+    assert result["model_identity_id"] is None
+    assert result["formal_acceptance"] is False
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["model_identity", "expected_checkpoint_identity", "model_sampling", "flow_steps", "sample_average", "policy_seed"],
+)
+def test_partial_identity_evidence_cannot_downgrade_to_legacy(recording_fixture, missing):
+    verifier, path, manifest = recording_fixture
+    if missing in ("flow_steps", "sample_average"):
+        manifest["model_sampling"].pop(missing)
+    else:
+        manifest.pop(missing)
+    path.write_text(json.dumps(manifest))
+    for require_success in (False, True):
+        with pytest.raises(ValueError):
+            verifier.verify_recording(path, require_success=require_success)
+
+
+@pytest.mark.parametrize("alteration", ["flow_steps", "sample_average", "policy_seed", "call_id", "missing_call_id"])
+def test_identity_sampling_and_individual_response_mismatches_fail(recording_fixture, alteration):
+    verifier, path, manifest = recording_fixture
+    if alteration in ("flow_steps", "sample_average"):
+        manifest["model_sampling"][alteration] += 1
+    elif alteration == "policy_seed":
+        manifest["policy_seed"] += 1
+    elif alteration == "call_id":
+        manifest["policy_calls"][5]["model_identity_id"] = "0" * 64
+    else:
+        manifest["policy_calls"][5].pop("model_identity_id")
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        verifier.verify_recording(path)
+
+
+def test_server_identity_cannot_be_reused_for_another_checkpoint(recording_fixture):
+    verifier, path, manifest = recording_fixture
+    checkpoint = path.parent / "checkpoint"
+    (checkpoint / "model.safetensors").write_bytes(b"different but validly hashed checkpoint fixture")
+    manifest["expected_checkpoint_identity"] = checkpoint_identity(checkpoint)
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="differs from local expected checkpoint"):
+        verifier.verify_recording(path)
+
+
+def test_tampered_model_identity_digest_is_rejected(recording_fixture):
+    verifier, path, manifest = recording_fixture
+    manifest["model_identity"]["loaded_model"]["model_type"] = "Gr00tN1d6"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="identity digest mismatch"):
         verifier.verify_recording(path)
 
 

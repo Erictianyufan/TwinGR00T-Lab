@@ -34,6 +34,7 @@ from replay_live_multiview import (
 
 from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
+from twingr00t_lab.model_identity import checkpoint_identity, validate_model_identity
 from twingr00t_lab.policy_bridge import build_groot_observation, groot_action_to_isaac, to_numpy
 from twingr00t_lab.policy_client import PolicyTransportClient
 from twingr00t_lab.policy_input_evidence import (
@@ -281,6 +282,7 @@ def main() -> None:
                 "Verify actual recording interval and set --expected-policy-fps explicitly if metadata was wrong."
             )
         record_fps = control_fps / args.record_every
+        expected_checkpoint_identity = checkpoint_identity(args.checkpoint)
         ffmpeg_args = ffmpeg_command(args.output, record_fps)
         ffmpeg_args[ffmpeg_args.index("+faststart")] = "+frag_keyframe+empty_moov+default_base_moof"
         process = subprocess.Popen(
@@ -297,6 +299,14 @@ def main() -> None:
         with PolicyTransportClient(args.host, args.port) as client:
             if not client.ping():
                 raise RuntimeError("GR00T policy server is not responding")
+            model_identity = client.call("get_model_identity")
+            validate_model_identity(
+                model_identity,
+                expected_checkpoint_identity=expected_checkpoint_identity,
+                expected_flow_steps=args.flow_steps,
+                expected_sample_average=args.sample_average,
+                expected_seed=args.policy_seed,
+            )
             client.reset({"episode_index": 0, "step_index": 0})
             for step in range(args.max_steps):
                 if chunk_index >= len(chunk):
@@ -315,7 +325,12 @@ def main() -> None:
                             policy_call_pending=True,
                         )
                     inference_start = time.monotonic()
-                    prediction, _ = client.get_action(policy_input)
+                    prediction, prediction_info = client.get_action(policy_input)
+                    if (
+                        not isinstance(prediction_info, dict)
+                        or prediction_info.get("model_identity_id") != model_identity["identity_id"]
+                    ):
+                        raise RuntimeError("Policy response is not bound to the verified N1.7 checkpoint identity")
                     all_actions = groot_action_to_isaac(prediction)
                     if all_actions.shape[0] != 1:
                         raise RuntimeError(f"Expected one environment, got {all_actions.shape[0]}")
@@ -343,6 +358,7 @@ def main() -> None:
                             "clipped_values": clipped_values,
                             "action_sha256": action_sha256(chunk),
                             "raw_action_sha256": action_sha256(raw_chunk),
+                            "model_identity_id": prediction_info["model_identity_id"],
                         }
                     )
 
@@ -477,6 +493,8 @@ def main() -> None:
             "initial_state_source": str(args.demo),
             "initial_state_split": args.initial_state_split,
             "checkpoint": str(args.checkpoint),
+            "model_identity": model_identity,
+            "expected_checkpoint_identity": expected_checkpoint_identity,
             "model_sampling": {"flow_steps": args.flow_steps, "sample_average": args.sample_average},
             "policy_seed": args.policy_seed,
             "simulation_seed": args.seed,

@@ -7,12 +7,14 @@ import hashlib
 import json
 import math
 import subprocess
+from dataclasses import asdict
 from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
 
 from twingr00t_lab.grasp_acceptance import GraspAcceptanceConfig, evaluate_grasp_sorting
+from twingr00t_lab.model_identity import validate_model_identity
 
 
 def expand_clip_bounds(values: np.ndarray, name: str) -> np.ndarray:
@@ -110,6 +112,50 @@ def verify_policy_input_pngs(manifest_path: Path, manifest: dict) -> bool:
     return True
 
 
+def verify_model_identity_evidence(manifest: dict, calls: list[dict], *, require_success: bool) -> dict:
+    """Bind every response to the validated service and local checkpoint contents.
+
+    Missing legacy identity is diagnostic only; partial or inconsistent identity
+    is an error even in diagnostics, rather than an excuse to skip validation.
+    """
+    identity = manifest.get("model_identity")
+    expected = manifest.get("expected_checkpoint_identity")
+    if identity is None and expected is None and all(call.get("model_identity_id") is None for call in calls):
+        if require_success:
+            raise ValueError("Formal acceptance requires verified model identity and local checkpoint content hashes")
+        return {
+            "model_identity_verified": False,
+            "model_identity_status": "legacy_identity_missing_unverified",
+            "model_identity_id": None,
+            "checkpoint_id": None,
+        }
+    if not isinstance(identity, dict) or not isinstance(expected, dict):
+        raise ValueError("Model identity and local expected checkpoint identity must both be present")
+    sampling = manifest.get("model_sampling")
+    if (
+        not isinstance(sampling, dict)
+        or sampling.get("flow_steps") is None
+        or sampling.get("sample_average") is None
+        or manifest.get("policy_seed") is None
+    ):
+        raise ValueError("Model identity requires complete requested sampling settings and policy_seed")
+    validate_model_identity(
+        identity,
+        expected_checkpoint_identity=expected,
+        expected_flow_steps=sampling["flow_steps"],
+        expected_sample_average=sampling["sample_average"],
+        expected_seed=manifest["policy_seed"],
+    )
+    if not calls or any(call.get("model_identity_id") != identity["identity_id"] for call in calls):
+        raise ValueError("Every policy call must match the validated model identity ID")
+    return {
+        "model_identity_verified": True,
+        "model_identity_status": "checkpoint_service_and_all_responses_consistent",
+        "model_identity_id": identity["identity_id"],
+        "checkpoint_id": identity["checkpoint"]["checkpoint_id"],
+    }
+
+
 def verify_recording(manifest_path: Path, *, require_success: bool = True, allow_unreviewed: bool = False) -> dict:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if require_success and manifest.get("status") != "success":
@@ -160,6 +206,11 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
     recorded_acceptance = manifest.get("acceptance")
     if require_success and (recorded_acceptance is None or len(evidence) != len(evidence_keys)):
         raise ValueError("Formal acceptance requires measured grasp and stable-placement evidence")
+    if require_success and (
+        not isinstance(recorded_acceptance, dict)
+        or recorded_acceptance.get("config") != asdict(GraspAcceptanceConfig())
+    ):
+        raise ValueError("Formal acceptance requires the official default GraspAcceptanceConfig without overrides")
     acceptance = None
     acceptance_report_matches = None
     if recorded_acceptance is not None:
@@ -209,6 +260,7 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
     calls = manifest["policy_calls"]
     if len(calls) != len(chunks) or len(calls) < 1:
         raise ValueError("Policy call count does not match saved model chunks")
+    model_identity_evidence = verify_model_identity_evidence(manifest, calls, require_success=require_success)
     for call, chunk in zip(calls, chunks, strict=True):
         if int(call["executed_horizon"]) != len(chunk):
             raise ValueError("A policy chunk has the wrong horizon")
@@ -268,6 +320,7 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
     return {
         "status": verified_status,
         "formal_acceptance": verified_status == "success" and require_success,
+        **model_identity_evidence,
         "recording_schema_version": schema,
         "scene_style": scene_style,
         "scene_diagnostic_only": scene_diagnostic,
