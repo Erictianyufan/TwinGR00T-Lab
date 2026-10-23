@@ -64,6 +64,13 @@ See [block stability](docs/block-stability.md) and
 
 ![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
 
+[![观看 N1.7 工厂闭环诊断录像：任务未通过](docs/media/n17_factory_online_partial_preview.png)](docs/media/n17_factory_online_partial_seed42.mp4)
+
+[观看五机位、未剪辑的真实 N1.7 在线推理诊断视频](docs/media/n17_factory_online_partial_seed42.mp4)
+（约 24 秒，checkpoint-2000，seed 42）。此轨迹局部抬起红、蓝块，但漏抓绿块且
+最终放置不稳定，**未通过完整三块双臂分拣验收**；核验结果见
+[对应验证记录](docs/evidence/n17-factory-stage4-partial/verify.json)。
+
 这张图说明实际训练、在线推理和验收流程，**不代表已经获得 N1.7 成功 Demo**。
 目前已完成时序对齐数据转换，并在单张 24 GB RTX 4090 上运行低显存后训练。
 已检查的 200 步和后续 1,000 步版本没有通过抓取检查；再训练 4,000 步后，
@@ -74,6 +81,8 @@ See [block stability](docs/block-stability.md) and
 现正保留九条数据的归一化，仅采样 demo0 进行 500 步单案例拟合；实际采样审计确认
 510 个有效起点（0–509）各出现一次。500 步检查点已保存并通过结构核验，
 新的工厂场景闭环录制已完成，但三块物体均未满足有效抓取条件，因此第五段未通过验收。
+第六段针对绿块接近阶段追加采样并完成 1,000 步训练，真实闭环仍未形成三块有效抓取；
+截至目前没有可发布为 N1.7 完整任务成功的录像。
 即使该案例后续通过，也不代表泛化成功率。
 教师回放通过、训练 loss 下降、模型调用成功或生成 MP4 均不作为 N1.7 任务成功依据。
 

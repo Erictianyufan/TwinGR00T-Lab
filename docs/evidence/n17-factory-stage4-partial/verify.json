@@ -1,0 +1,107 @@
+{
+  "status": "task_not_completed",
+  "formal_acceptance": false,
+  "model_identity_verified": true,
+  "model_identity_status": "checkpoint_service_and_all_responses_consistent",
+  "model_identity_id": "a6a10729de327c75097943ca768a140695e2ef9bf4c0ac875c3cc0931b050645",
+  "checkpoint_id": "1f1b22e02d5dd5988f8713b9f311887d60cb3aac6c47e5f3a60f132fccac8c06",
+  "recording_schema_version": 2,
+  "scene_style": "factory",
+  "scene_diagnostic_only": false,
+  "formal_factory_scene": true,
+  "controller_source": "GR00T_N1.7_model_inference",
+  "steps_executed": 1500,
+  "policy_calls": 188,
+  "both_arms_motion_rad": {
+    "left": 2.409996747970581,
+    "right": 2.704510450363159
+  },
+  "action_trace_reconstructed": true,
+  "raw_to_clipped_actions_verified": true,
+  "grasp_acceptance": {
+    "schema_version": 1,
+    "success": false,
+    "evidence_type": "kinematic_lift_near_closed_gripper",
+    "direct_contact_sensor_verified": false,
+    "video_review_required": true,
+    "config": {
+      "min_lift_m": 0.025,
+      "min_lift_duration_s": 0.08,
+      "max_eef_distance_m": 0.15,
+      "max_gripper_position_m": 0.04,
+      "min_object_displacement_m": 0.03,
+      "min_arm_motion_rad": 0.1,
+      "stable_duration_s": 0.5,
+      "max_final_height_error_m": 0.02,
+      "max_linear_speed_m_s": 0.03,
+      "max_angular_speed_rad_s": 0.5,
+      "max_stable_position_span_m": 0.01
+    },
+    "step_dt": 0.016,
+    "grasp_milestone": true,
+    "all_objects_grasped": false,
+    "object_grasped": [
+      true,
+      false,
+      true
+    ],
+    "both_arms_grasp_evidence": false,
+    "arm_grasp_evidence": [
+      true,
+      false
+    ],
+    "both_arms_measured_motion": true,
+    "arm_motion_rad": [
+      2.4048933340236545,
+      2.671572094783187
+    ],
+    "max_lift_m": [
+      0.06137007474899292,
+      0.0,
+      0.0989876389503479
+    ],
+    "max_displacement_m": [
+      0.06541056113608798,
+      3.725290298461914e-09,
+      0.10766162396255939
+    ],
+    "longest_lift_runs_steps_by_object_arm": [
+      [
+        6,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        28,
+        0
+      ]
+    ],
+    "required_lift_steps": 6,
+    "sorting_stable_window": false,
+    "stable_placement": false,
+    "stable_window_steps": 33,
+    "final_max_linear_speed_m_s": 0.276418804867801,
+    "final_max_angular_speed_rad_s": 7.549840927317018,
+    "final_position_span_m": 0.012971041192772271,
+    "final_height_ok": true,
+    "final_grippers_released": false
+  },
+  "acceptance_report_matches": true,
+  "video_review": "pending",
+  "direct_contact_sensor_verified": false,
+  "video_duration_s": 24.0,
+  "video_sha256": "6700896038da5c1cfdd995f725bd6e107002932bf3cf70ca53f36c58c04941b3",
+  "video_frame_count": 750,
+  "video_identity_and_completeness_verified": true,
+  "first_policy_input_pngs_verified": true,
+  "video_bytes": 9680726,
+  "initial_state_split": "train",
+  "block_displacement_m": {
+    "block1": 0.05506066232919693,
+    "block2": 0.0,
+    "block3": 0.09459364414215088
+  }
+}
