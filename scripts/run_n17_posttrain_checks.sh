@@ -179,7 +179,7 @@ fi
 set -o noclobber
 "${groot_python}" scripts/diagnose_n17_offline.py \
   --checkpoint "${checkpoint}" --train-demo "${train_demo}" --heldout-demo "${heldout_demo}" \
-  --prompt "${prompt}" --correct-legacy-jpeg-bgr --observation-action-offset 1 \
+  --correct-legacy-jpeg-bgr --observation-action-offset 1 \
   --flow-steps 8 --repeats 3 --seed 42 > "${offline}" 2> "${offline%.json}.stderr"
 
 failed=0
