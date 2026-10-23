@@ -96,6 +96,8 @@ export NO_ALBUMENTATIONS_UPDATE=1 TOKENIZERS_PARALLELISM=false
 
 新图像由 Pillow 编为 RGB JPEG，不再执行旧数据的 BGR 交换。保持实际 62.5 Hz 和 `observation[i] -> action[i+1]`，重新计算绝对/相对动作统计量。训练流程已完成九条源数据哈希、完整动作、真实尾段和物理证据检查及数据转换，启动从第三段 checkpoint-4000 补训 2,000 步；完成后再做真实闭环复测。
 
+首帧输入契约复核：正式重采 `factory-v1/demo_0` 的头部、左腕、右腕图像，与 `n17_coloroff4000_20261023_factory_train0` 实际策略输入 PNG 的 MAE 分别约为 0.8855、0.8959、0.7315（0–255 像素单位）；三路均为 `480×640×3 uint8 RGB`，在线 PNG 哈希与 manifest 一致。误交换红蓝后 MAE 会分别升至约 51.38、34.26、31.37，因此在线相机必须保持 RGB。教师 JPEG 为首次教师动作后的观测，在线 PNG 为首次模型调用前的观测，且压缩格式不同，不能声称严格同刻或逐像素相等；此检查也不证明模型完成任务。
+
 ```bash
 cd /home/ubuntu/mycode/robotwin-gr00t-aloha
 MAX_STEPS=2000 SAVE_STEPS=1000 nohup bash scripts/train_n17_factory_stage.sh \
