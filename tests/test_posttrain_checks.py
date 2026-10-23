@@ -148,6 +148,8 @@ def diagnostic_inputs(tmp_path):
 def test_factory_rgb_inputs_keep_split_specific_prompts_and_actual_stats(diagnostic_guards, diagnostic_inputs):
     result = diagnostic_guards["resolve_diagnostic_config"](*diagnostic_inputs, "0")
     assert result["correct_legacy_jpeg_bgr"] is False
+    assert result["policy_camera_bgr_swap"] is False
+    assert result["online_camera_encoding"] == "isaac_rgb"
     assert result["observation_action_offset"] == 1
     assert result["offline_prompts"]["train"]["text"] == "Use left, right, left arms"
     assert result["offline_prompts"]["heldout"]["text"] == "Use right, left, left arms"
@@ -160,6 +162,7 @@ def test_factory_rgb_inputs_keep_split_specific_prompts_and_actual_stats(diagnos
 def test_online_override_is_explicit_and_does_not_change_offline_prompts(diagnostic_guards, diagnostic_inputs):
     result = diagnostic_guards["resolve_diagnostic_config"](*diagnostic_inputs, "1", "  Different online request  ")
     assert result["correct_legacy_jpeg_bgr"] is True
+    assert result["policy_camera_bgr_swap"] is False
     assert result["online_prompt"] == {"text": "Different online request", "source": "POLICY_PROMPT_override"}
     assert result["offline_prompts"]["heldout"]["text"] == "Use right, left, left arms"
 
@@ -187,7 +190,7 @@ def test_shell_color_array_and_path_overrides_match_dataset_contract(factory):
     text = SCRIPT.read_text(encoding="utf-8")
     block = 'train_demo="${TRAIN_DEMO:' + text.split('train_demo="${TRAIN_DEMO:', 1)[1].split('[[ "${gpu_id}"', 1)[0]
     env = os.environ.copy()
-    keys = ("TRAIN_DEMO", "HELDOUT_DEMO", "ACTION_STATS", "CORRECT_LEGACY_JPEG_BGR")
+    keys = ("TRAIN_DEMO", "HELDOUT_DEMO", "ACTION_STATS", "CORRECT_LEGACY_JPEG_BGR", "POLICY_CAMERA_BGR_SWAP")
     for key in keys:
         env.pop(key, None)
     if factory:
@@ -217,6 +220,22 @@ printf '%s\n' "${correct_legacy_jpeg_bgr}" "${#legacy_color_args[@]}" "${legacy_
         assert lines[3:] == ["1", "1", "--correct-legacy-jpeg-bgr"]
 
 
+@pytest.mark.parametrize("offline_flag", ["0", "1"])
+@pytest.mark.parametrize("online_flag", ["1", "true", ""])
+def test_inherited_online_color_swap_fails_before_any_training_wait(offline_flag, online_flag):
+    git_bash = Path("D:/Git/bin/bash.exe")
+    bash = str(git_bash) if git_bash.is_file() else shutil.which("bash")
+    if not bash:
+        pytest.skip("Bash unavailable for CPU-only shell parameter test")
+    text = SCRIPT.read_text(encoding="utf-8")
+    block = 'train_demo="${TRAIN_DEMO:' + text.split('train_demo="${TRAIN_DEMO:', 1)[1].split('[[ "${gpu_id}"', 1)[0]
+    env = os.environ.copy()
+    env.update(CORRECT_LEGACY_JPEG_BGR=offline_flag, POLICY_CAMERA_BGR_SWAP=online_flag)
+    result = subprocess.run([bash, "-c", "project_root=/project\n" + block], capture_output=True, text=True, env=env)
+    assert result.returncode == 2
+    assert "Online Isaac cameras are RGB" in result.stderr
+
+
 def test_diagnostics_preserve_scene_seed_identity_and_never_publish():
     text = SCRIPT.read_text(encoding="utf-8")
     assert '"${legacy_color_args[@]}" --observation-action-offset 1' in text
@@ -224,5 +243,6 @@ def test_diagnostics_preserve_scene_seed_identity_and_never_publish():
     assert "for style in factory no-factory-dressing" in text
     assert "POLICY_SEED=42 SIM_SEED=42" in text
     assert 'INITIAL_STATE_SPLIT=train POLICY_PROMPT="${prompt}"' in text
+    assert "POLICY_CAMERA_BGR_SWAP=0 \\" in text
     assert "--allow-failed" in text and "set -o noclobber" in text
     assert "git push" not in text and "gh release" not in text

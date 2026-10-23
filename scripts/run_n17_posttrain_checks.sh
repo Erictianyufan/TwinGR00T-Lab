@@ -21,6 +21,12 @@ train_demo="${TRAIN_DEMO:-${project_root}/data/replayed/blocks_ranking_rgb-visio
 heldout_demo="${HELDOUT_DEMO:-${project_root}/data/replayed/blocks_ranking_rgb-vision-ep1/data/demo_0.hdf5}"
 action_stats="${ACTION_STATS:-${project_root}/data/lerobot/blocks_ranking_rgb-aligned-v1/meta/stats.json}"
 correct_legacy_jpeg_bgr="${CORRECT_LEGACY_JPEG_BGR-1}"
+# Online frames come directly from Isaac in RGB, independently of the legacy
+# offline JPEG encoding. Refuse contradictory inherited diagnostic settings.
+if [[ "${POLICY_CAMERA_BGR_SWAP-0}" != 0 ]]; then
+  echo "Online Isaac cameras are RGB: POLICY_CAMERA_BGR_SWAP must be unset or 0; offline JPEG correction is independent." >&2
+  exit 2
+fi
 case "${correct_legacy_jpeg_bgr}" in
   0|1) ;;
   *) echo "CORRECT_LEGACY_JPEG_BGR must be exactly 0 or 1" >&2; exit 2 ;;
@@ -215,6 +221,7 @@ def resolve_diagnostic_config(train_demo, heldout_demo, action_stats, correct_le
     return {
         **{name: str(path) for name, path in paths.items()},
         "correct_legacy_jpeg_bgr": correct_legacy_jpeg_bgr == "1",
+        "policy_camera_bgr_swap": False, "online_camera_encoding": "isaac_rgb",
         "observation_action_offset": 1, "offline_prompts": prompts, "online_prompt": online,
         "initial_state_split": "train", "status": "diagnostic_configuration_not_inference_success",
     }
@@ -243,6 +250,7 @@ for style in factory no-factory-dressing; do
   MODEL_PATH="${checkpoint}" GROOT_PYTHON="${groot_python}" POLICY_PORT="${port}" \
   ACTION_STATS="${action_stats}" \
   HELDOUT_DEMO="${train_demo}" INITIAL_STATE_SPLIT=train POLICY_PROMPT="${prompt}" \
+  POLICY_CAMERA_BGR_SWAP=0 \
   ACTION_ALPHA=1 FLOW_STEPS=8 POLICY_SEED=42 SIM_SEED=42 SCENE_STYLE="${style}" \
   OUTPUT_VIDEO="${output}" bash scripts/record_aloha_n17_factory.sh \
     > "results/logs/${run_id}_${style}.log" 2>&1 || record_rc=$?
