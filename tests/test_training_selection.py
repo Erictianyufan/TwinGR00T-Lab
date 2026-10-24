@@ -14,6 +14,7 @@ from twingr00t_lab.training_selection import (
     focus_window_plan,
     install_factory_selection,
     selection_plan,
+    single_episode_focus_plan,
 )
 
 
@@ -195,3 +196,28 @@ def test_focus_window_rejects_incomplete_source_coverage(sources):
     with pytest.raises(ValueError, match="coverage"):
         factory.ShardedSingleStepDataset(sources)
     restore()
+
+
+def test_single_episode_phase_focus_preserves_all_selected_starts_and_stats(sources):
+    dataset = FakeUpstreamDataset(sources)
+    before_stats = dataset.statistics
+    plan = single_episode_focus_plan(sources, 0, 1, 3, 3)
+    factory = SimpleNamespace(ShardedSingleStepDataset=lambda dataset_path: dataset)
+    restore = install_factory_selection(factory, plan, sources / "single_focus_audit.json")
+    assert factory.ShardedSingleStepDataset(sources) is dataset
+    restore()
+    audit = json.loads((sources / "single_focus_audit.json").read_text())
+    assert audit["status"] == "verified_single_episode_phase_focus"
+    assert audit["training_episode_id"] == 0
+    assert audit["original_start_count"] == 4
+    assert audit["extra_start_count"] == 6
+    assert audit["effective_start_count"] == 10
+    assert audit["original_each_start_exactly_once"] is True
+    assert dataset.statistics is before_stats
+    counts = {}
+    for shard in dataset.sharded_episodes:
+        for episode, steps in shard:
+            assert episode == 1  # loader index 1 is metadata episode_index 0
+            for step in steps:
+                counts[int(step)] = counts.get(int(step), 0) + 1
+    assert counts == {0: 1, 1: 4, 2: 4, 3: 1}
