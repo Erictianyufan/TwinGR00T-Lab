@@ -32,7 +32,8 @@ corresponding physics, task, and settling checks pass.
 - **Reproducible data path:** audit RoboTwin HDF5 demonstrations and convert
   episode-disjoint splits to a GR00T-flavored LeRobot v2 dataset.
 - **Dual-runtime isolation:** keep the Isaac simulator and GR00T dependencies in
-  separate Python environments and assign them to separate GPUs.
+  separate Python environments; use separate GPUs when available, or serialize
+  training and online inference on a single GPU.
 - **Contact-aware demos:** retain rigid-body dynamics, collision, friction,
   gravity, and post-release settling during verified manipulation.
 - **Auditable outputs:** pair videos with JSON manifests and compressed traces
@@ -61,6 +62,15 @@ See [block stability](docs/block-stability.md) and
 [parcel sorting](docs/parcel-sorting-demo.md) for the acceptance contracts.
 
 ## N1.7 双臂工厂分拣：训练与闭环验证中
+
+![N1.7 双臂工厂分拣：教师示范训练与在线闭环推理的中文流程图](assets/diagrams/twingroot_n17_factory_pipeline_zh_public17_v2.png)
+
+上图是**生成的技术示意图，不是实验帧**。上半部分的教师重放仅用于训练；
+下半部分才是将来可作为正式视频来源的 N1.7 在线推理。新增 10 条公开示范
+经 Isaac 物理重放后，8 条通过、2 条剔除；与原有 9 条合格教师轨迹合并为
+17 条、12,890 帧的训练集。数据构建和验收边界见
+[第九轮实验说明](docs/n17-public17-factory-training.md)。此数据验收
+**不代表模型已经完成任务**。
 
 ![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
 
