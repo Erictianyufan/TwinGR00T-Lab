@@ -82,6 +82,8 @@ See [block stability](docs/block-stability.md) and
 最终放置不稳定，**未通过完整三块双臂分拣验收**；核验结果见
 [对应验证记录](docs/evidence/n17-factory-stage4-partial/verify.json)。
 
+[观看最新约 50 秒五机位在线推理诊断录像](docs/evidence/n17-factory-v12v13-blend02-failure/n17_public17_v12v13_blend02_router_e16_20261024_demo12.mp4)：真实模型闭环抓起红块后进入抓绿阶段，但绿、蓝块未抓起、放置不稳定，**同样不是成功 Demo**。对应的[动作／物体状态、核验和抽帧](docs/n17-public17-factory-training.md)均可复查。
+
 这张图说明实际训练、在线推理和验收流程，**不代表已经获得 N1.7 成功 Demo**。
 目前已完成时序对齐数据转换，并在单张 24 GB RTX 4090 上运行低显存后训练。
 已检查的 200 步和后续 1,000 步版本没有通过抓取检查；再训练 4,000 步后，
