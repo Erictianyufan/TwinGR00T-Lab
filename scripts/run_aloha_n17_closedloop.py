@@ -138,6 +138,9 @@ def main() -> None:
         help="Route six language subtasks from observed object/gripper milestones; never substitute actions",
     )
     parser.add_argument(
+        "--phase-context", action="store_true", help="Prefix phase prompts with the original task instruction"
+    )
+    parser.add_argument(
         "--phase-arms", nargs=3, choices=("left", "right"), default=("right", "left", "right")
     )
     parser.add_argument("--initial-state-split", choices=("train", "heldout"), default="heldout")
@@ -241,7 +244,17 @@ def main() -> None:
             raise RuntimeError(f"Five-camera recording is unavailable: {sorted(missing)}")
         task_key = task_key_for(args.environment)
         prompt = args.prompt or instruction_for(args.demo, task_key)
-        router = ThreeBlockPhaseRouter(initial_block_positions, tuple(args.phase_arms)) if args.phase_router else None
+        if args.phase_context and not args.phase_router:
+            raise ValueError("--phase-context requires --phase-router")
+        router = (
+            ThreeBlockPhaseRouter(
+                initial_block_positions,
+                tuple(args.phase_arms),
+                context_prompt=prompt if args.phase_context else "",
+            )
+            if args.phase_router
+            else None
+        )
         active_prompt = router.prompt if router is not None else prompt
         if args.snapshot_only:
             snapshot = build_groot_observation(
@@ -527,6 +540,7 @@ def main() -> None:
             "phase_router": {
                 "enabled": router is not None,
                 "arm_order": list(args.phase_arms) if router is not None else None,
+                "context_prompt": prompt if router is not None and args.phase_context else None,
                 "prompts": list(router.prompts) if router is not None else None,
                 "events": router.events if router is not None else [],
                 "action_source": "GR00T_N1.7_model_inference_only",

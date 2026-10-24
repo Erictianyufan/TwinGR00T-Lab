@@ -15,10 +15,10 @@ COLORS = ("red", "green", "blue")
 DEFAULT_ARM_ORDER = ("right", "left", "right")
 
 
-def phase_prompts(arm_order: tuple[str, str, str] = DEFAULT_ARM_ORDER) -> tuple[str, ...]:
+def phase_prompts(arm_order: tuple[str, str, str] = DEFAULT_ARM_ORDER, *, context: str = "") -> tuple[str, ...]:
     if len(arm_order) != 3 or any(arm not in ("left", "right") for arm in arm_order):
         raise ValueError("The three color phases need left/right arm assignments")
-    return (
+    phases = (
         f"Pick up the red block with the {arm_order[0]} arm.",
         "Place the red block on the left side of the row and release it.",
         f"Pick up the green block with the {arm_order[1]} arm.",
@@ -26,6 +26,8 @@ def phase_prompts(arm_order: tuple[str, str, str] = DEFAULT_ARM_ORDER) -> tuple[
         f"Pick up the blue block with the {arm_order[2]} arm.",
         "Place the blue block on the far right and release it.",
     )
+    context = context.strip()
+    return tuple(f"{context} Current subtask: {phase}" for phase in phases) if context else phases
 
 
 @dataclass
@@ -34,6 +36,7 @@ class ThreeBlockPhaseRouter:
 
     initial_positions: np.ndarray
     arm_order: tuple[str, str, str] = DEFAULT_ARM_ORDER
+    context_prompt: str = ""
     pickup_confirmation_steps: int = 5
     place_confirmation_steps: int = 31
     phase_index: int = 0
@@ -47,7 +50,7 @@ class ThreeBlockPhaseRouter:
         if min(self.pickup_confirmation_steps, self.place_confirmation_steps) < 1:
             raise ValueError("Confirmation windows must be positive")
         self.initial_positions = initial.copy()
-        self.prompts = phase_prompts(self.arm_order)
+        self.prompts = phase_prompts(self.arm_order, context=self.context_prompt)
 
     @property
     def prompt(self) -> str:

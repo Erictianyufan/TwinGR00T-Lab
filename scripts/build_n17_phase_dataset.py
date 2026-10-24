@@ -116,7 +116,17 @@ def build(args: argparse.Namespace) -> dict:
         episodes_path = temporary / "meta/episodes.jsonl"
         info = json.loads(info_path.read_text(encoding="utf-8"))
         tasks = [json.loads(line) for line in tasks_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        prompts = phase_prompts(tuple(args.arm_order))
+        context = ""
+        if args.retain_original_instruction:
+            source_task_ids = set(table["task_index"].to_pylist())
+            if len(source_task_ids) != 1:
+                raise ValueError("Context-preserving phases require one original task instruction")
+            source_task_id = source_task_ids.pop()
+            source_tasks = [task["task"] for task in tasks if task["task_index"] == source_task_id]
+            if len(source_tasks) != 1 or not source_tasks[0].strip():
+                raise ValueError("Missing unique original task instruction")
+            context = source_tasks[0]
+        prompts = phase_prompts(tuple(args.arm_order), context=context)
         first_task = max(task["task_index"] for task in tasks) + 1
         tasks.extend({"task_index": first_task + index, "task": text} for index, text in enumerate(prompts))
         tasks_path.write_text("".join(json.dumps(task) + "\n" for task in tasks), encoding="utf-8")
@@ -154,6 +164,7 @@ def build(args: argparse.Namespace) -> dict:
             "source_report_sha256": sha256(report),
             "episode_id": args.episode_id,
             "arm_order": list(args.arm_order),
+            "retained_original_instruction": context or None,
             "prompt_ids": list(range(first_task, first_task + 6)),
             "prompts": list(prompts),
             "segments_start_inclusive_end_exclusive": [list(pair) for pair in segments],
@@ -176,6 +187,7 @@ def main() -> None:
     parser.add_argument("--report", required=True, type=Path, help="Matching physical replay report")
     parser.add_argument("--episode-id", type=int, required=True)
     parser.add_argument("--arm-order", nargs=3, choices=("left", "right"), default=DEFAULT_ARM_ORDER)
+    parser.add_argument("--retain-original-instruction", action="store_true")
     args = parser.parse_args()
     print(json.dumps(build(args), indent=2), flush=True)
 

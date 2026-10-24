@@ -56,6 +56,16 @@ def test_router_rejects_invalid_inputs_and_arm_plan():
         )
 
 
+def test_context_preserving_prompt_keeps_original_task_and_phase():
+    task = "Pick up red block, position it on the left, add green block next to it."
+    prompts = phase_prompts(context=task)
+    assert len(prompts) == 6
+    assert all(prompt.startswith(task + " Current subtask: ") for prompt in prompts)
+    router = ThreeBlockPhaseRouter(np.zeros((3, 3)), context_prompt=task)
+    assert router.prompt == prompts[0]
+    assert router.prompts == prompts
+
+
 def test_teacher_phase_boundaries_use_lift_and_release_not_elapsed_fractions():
     z = np.full((120, 3), 0.765, dtype=np.float32)
     for color, start, end in ((0, 10, 20), (1, 40, 50), (2, 70, 80)):

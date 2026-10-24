@@ -120,6 +120,9 @@ router_args=()
 if [[ "${PHASE_ROUTER:-0}" == 1 ]]; then
   router_args=(--phase-router)
 fi
+if [[ "${PHASE_CONTEXT:-0}" == 1 ]]; then
+  router_args+=(--phase-context)
+fi
 "${sim_python}" scripts/run_aloha_n17_closedloop.py "${heldout_demo}" \
   --output "${output}" \
   --checkpoint "${model_path}" \
