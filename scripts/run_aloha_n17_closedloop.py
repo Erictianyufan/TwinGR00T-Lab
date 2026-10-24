@@ -32,6 +32,7 @@ from replay_live_multiview import (
     teleport,
 )
 
+from twingr00t_lab.action_safety import action_bounds_from_stats
 from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
 from twingr00t_lab.model_identity import checkpoint_identity, validate_model_identity
@@ -100,21 +101,6 @@ def measured_state(policy: dict) -> np.ndarray:
     ).astype(np.float32)
 
 
-def action_bounds_from_stats(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Expand the training split's 14-D empirical limits to 16 Isaac joints."""
-    statistics = json.loads(path.read_text(encoding="utf-8"))["action"]
-    lower = np.asarray(statistics["min"], dtype=np.float32)
-    upper = np.asarray(statistics["max"], dtype=np.float32)
-    if lower.shape != (14,) or upper.shape != (14,) or not np.all(lower <= upper):
-        raise ValueError("Expected valid 14-D action limits from the training split")
-
-    def expand(values: np.ndarray) -> np.ndarray:
-        return np.concatenate((values[:6], np.repeat(values[6], 2), values[7:13], np.repeat(values[13], 2)))
-
-    margin = np.asarray([0.10] * 6 + [0.0] * 2 + [0.10] * 6 + [0.0] * 2, dtype=np.float32)
-    return expand(lower) - margin, expand(upper) + margin
-
-
 def main() -> None:
     parser = get_isaaclab_arena_cli_parser()
     parser.add_argument("demo", type=Path, help="Held-out re-recording used only for initial state")
@@ -131,6 +117,9 @@ def main() -> None:
     parser.add_argument("--action-alpha", type=float, default=0.2, help="Causal low-pass coefficient for joint targets")
     parser.add_argument("--max-joint-step", type=float, default=0.06, help="Maximum arm-joint change per control step")
     parser.add_argument("--max-gripper-step", type=float, default=0.008, help="Maximum gripper change per control step")
+    parser.add_argument(
+        "--arm-range-margin", type=float, default=0.1, help="Arm target margin beyond train range (0.1–0.5 rad)"
+    )
     parser.add_argument("--prompt", help="Override the demonstration's task instruction")
     parser.add_argument(
         "--phase-router",
@@ -186,9 +175,14 @@ def main() -> None:
     if args.output.exists() or args.output.with_suffix(".json").exists():
         parser.error("Refusing to overwrite existing recording or manifest")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    action_lower, action_upper = action_bounds_from_stats(args.action_stats)
+    try:
+        action_lower, action_upper = action_bounds_from_stats(
+            args.action_stats, arm_margin_rad=args.arm_range_margin
+        )
+    except ValueError as error:
+        parser.error(str(error))
     # Persist the effective clipping limits in the canonical logical order.
-    # These include the existing arm margin; this does not alter the controller.
+    # These include the selected arm margin; this does not alter the controller.
     logical_clip_limits = collapse_isaac_action(np.stack((action_lower, action_upper)))
 
     app_launcher = AppLauncher(args)
@@ -257,6 +251,15 @@ def main() -> None:
         )
         active_prompt = router.prompt if router is not None else prompt
         if args.snapshot_only:
+            robot = env.scene["robot"]
+            joint_limits = {
+                "joint_names": list(robot.joint_names),
+                "hard_rad": to_numpy(robot.data.joint_pos_limits[0]).tolist(),
+                "soft_rad": to_numpy(robot.data.soft_joint_pos_limits[0]).tolist(),
+            }
+            args.output.with_suffix(".joint_limits.json").write_text(
+                json.dumps(joint_limits, indent=2) + "\n", encoding="utf-8"
+            )
             snapshot = build_groot_observation(
                 observation["policy"],
                 observation["camera_obs"],
@@ -568,6 +571,7 @@ def main() -> None:
                 "low_pass_alpha": args.action_alpha,
                 "max_joint_step": args.max_joint_step,
                 "max_gripper_step": args.max_gripper_step,
+                "arm_range_margin_rad": args.arm_range_margin,
                 "total_clipped_values": sum(call["clipped_values"] for call in policy_calls),
             },
             "cameras": list(CAMERA_KEYS),

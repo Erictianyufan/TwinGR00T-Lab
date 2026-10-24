@@ -140,6 +140,7 @@ fi
   --action-alpha "${ACTION_ALPHA:-0.2}" \
   --max-joint-step "${MAX_JOINT_STEP:-0.06}" \
   --max-gripper-step "${MAX_GRIPPER_STEP:-0.008}" \
+  --arm-range-margin "${ARM_RANGE_MARGIN:-0.1}" \
   "${prompt_args[@]}" \
   "${camera_args[@]}" \
   "${timing_args[@]}" \
