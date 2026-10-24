@@ -426,13 +426,18 @@ def main() -> None:
                     # saved action trace remains exactly reconstructible.
                     print(f"[policy] phase router -> {router.phase_index}: {active_prompt}", flush=True)
                 if step % args.record_every == 0:
+                    video_prompt = (
+                        "Current subtask: " + active_prompt.rsplit(" Current subtask: ", 1)[-1]
+                        if args.phase_context
+                        else active_prompt
+                    )
                     frame = compose_frame(
                         observation["camera_obs"],
                         step // args.record_every,
                         (args.max_steps + args.record_every - 1) // args.record_every,
                         record_fps,
                         task_key,
-                        active_prompt,
+                        video_prompt,
                         title_override=scene_video_title(args.scene_style, args.initial_state_split),
                     )
                     process.stdin.write(np.asarray(frame, dtype=np.uint8).tobytes())
