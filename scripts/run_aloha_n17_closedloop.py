@@ -35,6 +35,7 @@ from replay_live_multiview import (
 from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
 from twingr00t_lab.model_identity import checkpoint_identity, validate_model_identity
+from twingr00t_lab.phase_router import ThreeBlockPhaseRouter
 from twingr00t_lab.policy_bridge import build_groot_observation, groot_action_to_isaac, to_numpy
 from twingr00t_lab.policy_client import PolicyTransportClient
 from twingr00t_lab.policy_input_evidence import (
@@ -131,6 +132,14 @@ def main() -> None:
     parser.add_argument("--max-joint-step", type=float, default=0.06, help="Maximum arm-joint change per control step")
     parser.add_argument("--max-gripper-step", type=float, default=0.008, help="Maximum gripper change per control step")
     parser.add_argument("--prompt", help="Override the demonstration's task instruction")
+    parser.add_argument(
+        "--phase-router",
+        action="store_true",
+        help="Route six language subtasks from observed object/gripper milestones; never substitute actions",
+    )
+    parser.add_argument(
+        "--phase-arms", nargs=3, choices=("left", "right"), default=("right", "left", "right")
+    )
     parser.add_argument("--initial-state-split", choices=("train", "heldout"), default="heldout")
     parser.add_argument("--flow-steps", type=int, default=4, help="N1.7 server flow integration steps for audit")
     parser.add_argument("--sample-average", type=int, default=1, help="N1.7 server sample count for audit")
@@ -232,11 +241,13 @@ def main() -> None:
             raise RuntimeError(f"Five-camera recording is unavailable: {sorted(missing)}")
         task_key = task_key_for(args.environment)
         prompt = args.prompt or instruction_for(args.demo, task_key)
+        router = ThreeBlockPhaseRouter(initial_block_positions, tuple(args.phase_arms)) if args.phase_router else None
+        active_prompt = router.prompt if router is not None else prompt
         if args.snapshot_only:
             snapshot = build_groot_observation(
                 observation["policy"],
                 observation["camera_obs"],
-                prompt,
+                active_prompt,
                 swap_rgb_bgr=args.policy_camera_bgr_swap,
             )
             save_policy_input_evidence(
@@ -313,7 +324,7 @@ def main() -> None:
                     policy_input = build_groot_observation(
                         observation["policy"],
                         observation["camera_obs"],
-                        prompt,
+                        active_prompt,
                         swap_rgb_bgr=args.policy_camera_bgr_swap,
                     )
                     if policy_input_metadata is None:
@@ -359,6 +370,7 @@ def main() -> None:
                             "action_sha256": action_sha256(chunk),
                             "raw_action_sha256": action_sha256(raw_chunk),
                             "model_identity_id": prediction_info["model_identity_id"],
+                            "language_prompt": active_prompt,
                         }
                     )
 
@@ -389,6 +401,17 @@ def main() -> None:
                 eef_positions.append(to_numpy(env.scene["ee_frame"].data.target_pos_w[0])[eef_indices].copy())
                 measured_states.append(measured_state(observation["policy"]))
                 sorting_flags.append(success_from_term(env, success_term))
+                if router is not None and router.observe(
+                    block_positions=block_positions[-1],
+                    block_linear_velocities=block_linear_velocities[-1],
+                    eef_positions=eef_positions[-1],
+                    gripper_positions=measured_states[-1][[6, 13]],
+                    control_step=step + 1,
+                ):
+                    active_prompt = router.prompt
+                    # Finish this genuine model chunk before replanning, so the
+                    # saved action trace remains exactly reconstructible.
+                    print(f"[policy] phase router -> {router.phase_index}: {active_prompt}", flush=True)
                 if step % args.record_every == 0:
                     frame = compose_frame(
                         observation["camera_obs"],
@@ -396,7 +419,7 @@ def main() -> None:
                         (args.max_steps + args.record_every - 1) // args.record_every,
                         record_fps,
                         task_key,
-                        prompt,
+                        active_prompt,
                         title_override=scene_video_title(args.scene_style, args.initial_state_split),
                     )
                     process.stdin.write(np.asarray(frame, dtype=np.uint8).tobytes())
@@ -501,6 +524,13 @@ def main() -> None:
             "seed_determinism_note": SEED_NOTE,
             "environment": env_name,
             "task_instruction": prompt,
+            "phase_router": {
+                "enabled": router is not None,
+                "arm_order": list(args.phase_arms) if router is not None else None,
+                "prompts": list(router.prompts) if router is not None else None,
+                "events": router.events if router is not None else [],
+                "action_source": "GR00T_N1.7_model_inference_only",
+            },
             "policy_camera_bgr_swap": args.policy_camera_bgr_swap,
             "steps_executed": len(actions_executed),
             "policy_calls": policy_calls,
