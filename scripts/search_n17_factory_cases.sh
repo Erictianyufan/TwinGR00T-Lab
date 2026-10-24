@@ -46,8 +46,8 @@ for (( episode=first; episode<=last; episode++ )); do
   status=$(/home/ubuntu/env_convert/bin/python -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "${stem}.json")
   if [[ "$status" == success && "$record_status" -eq 0 ]]; then
     PYTHONPATH=src /home/ubuntu/env_convert/bin/python scripts/verify_n17_recording.py \
-      "${stem}.json" > "${stem}.verify.json" || exit 1
-    echo "[search] episode=$episode VERIFIED_SUCCESS; selected-case result only"
+      "${stem}.json" --allow-unreviewed > "${stem}.verify.json" || exit 1
+    echo "[search] episode=$episode KINEMATIC_PASS_PENDING_VIDEO_REVIEW; selected-case result only"
     exit 0
   fi
   if [[ "$status" != task_not_completed ]]; then

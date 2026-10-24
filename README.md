@@ -72,7 +72,7 @@ See [block stability](docs/block-stability.md) and
 [第九轮实验说明](docs/n17-public17-factory-training.md)。此数据验收
 **不代表模型已经完成任务**。
 
-![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
+[早期 N1.7 框架设计图（历史方案，非实验结果）](docs/media/n17-framework-zh.png)
 
 [![观看 N1.7 工厂闭环诊断录像：任务未通过](docs/media/n17_factory_online_partial_preview.png)](docs/media/n17_factory_online_partial_seed42.mp4)
 
