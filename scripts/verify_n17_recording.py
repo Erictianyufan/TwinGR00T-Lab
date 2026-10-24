@@ -156,6 +156,60 @@ def verify_model_identity_evidence(manifest: dict, calls: list[dict], *, require
     }
 
 
+def verify_language_routing(manifest: dict, calls: list[dict]) -> dict:
+    """Confirm that routing changes only language at recorded milestones."""
+    routing = manifest.get("phase_router")
+    if routing is None:
+        return {"language_router_verified": False, "phase_transitions": 0}
+    if not isinstance(routing, dict) or type(routing.get("enabled")) is not bool:
+        raise ValueError("Invalid phase-router manifest")
+    if not routing["enabled"]:
+        if routing.get("events") not in (None, []):
+            raise ValueError("A disabled phase router cannot report transitions")
+        if any(
+            call.get("language_prompt", manifest["task_instruction"]) != manifest["task_instruction"]
+            for call in calls
+        ):
+            raise ValueError("Unrouted policy calls changed the task instruction")
+        return {"language_router_verified": True, "phase_transitions": 0}
+    prompts = routing.get("prompts")
+    events = routing.get("events")
+    if (
+        not isinstance(prompts, list)
+        or len(prompts) != 6
+        or any(not isinstance(item, str) or not item.strip() for item in prompts)
+        or len(set(prompts)) != 6
+        or not isinstance(events, list)
+        or routing.get("action_source") != "GR00T_N1.7_model_inference_only"
+    ):
+        raise ValueError("Invalid routed prompts, events or action source")
+    previous_step = 0
+    for index, event in enumerate(events):
+        if (
+            not isinstance(event, dict)
+            or type(event.get("control_step")) is not int
+            or not previous_step < event["control_step"] <= manifest["steps_executed"]
+            or event.get("from_phase") != index
+            or event.get("to_phase") != index + 1
+            or event.get("from_prompt") != prompts[index]
+            or event.get("to_prompt") != prompts[index + 1]
+        ):
+            raise ValueError("Invalid or out-of-order phase-router transition")
+        previous_step = event["control_step"]
+    if len(events) > 5:
+        raise ValueError("Six prompts permit at most five transitions")
+    previous_call_step = -1
+    for call in calls:
+        step = call.get("step")
+        if type(step) is not int or step <= previous_call_step:
+            raise ValueError("Policy calls are not in strictly increasing control-step order")
+        previous_call_step = step
+        active_phase = sum(event["control_step"] <= step for event in events)
+        if call.get("language_prompt") != prompts[active_phase]:
+            raise ValueError("Policy call language does not match the observed phase milestones")
+    return {"language_router_verified": True, "phase_transitions": len(events)}
+
+
 def verify_recording(manifest_path: Path, *, require_success: bool = True, allow_unreviewed: bool = False) -> dict:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if require_success and manifest.get("status") != "success":
@@ -261,6 +315,7 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
     if len(calls) != len(chunks) or len(calls) < 1:
         raise ValueError("Policy call count does not match saved model chunks")
     model_identity_evidence = verify_model_identity_evidence(manifest, calls, require_success=require_success)
+    language_routing = verify_language_routing(manifest, calls)
     for call, chunk in zip(calls, chunks, strict=True):
         if int(call["executed_horizon"]) != len(chunk):
             raise ValueError("A policy chunk has the wrong horizon")
@@ -321,6 +376,7 @@ def verify_recording(manifest_path: Path, *, require_success: bool = True, allow
         "status": verified_status,
         "formal_acceptance": verified_status == "success" and require_success,
         **model_identity_evidence,
+        **language_routing,
         "recording_schema_version": schema,
         "scene_style": scene_style,
         "scene_diagnostic_only": scene_diagnostic,

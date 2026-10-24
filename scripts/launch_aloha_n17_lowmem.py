@@ -186,20 +186,25 @@ def main() -> None:
     focus_requested = args.focus_window_start is not None or args.focus_window_end is not None
     if focus_requested and (args.focus_window_start is None or args.focus_window_end is None):
         parser.error("Both focus-window-start and focus-window-end are required")
-    if focus_requested and args.training_episode_id is not None:
-        parser.error("Focus-window sampling cannot be combined with single-episode selection")
     sampling = {"mode": "all_episodes"}
     if args.training_episode_id is not None or focus_requested:
-        from twingr00t_lab.training_selection import focus_window_plan, selection_plan
+        from twingr00t_lab.training_selection import focus_window_plan, selection_plan, single_episode_focus_plan
 
         try:
-            sampling = (
-                focus_window_plan(
+            if focus_requested and args.training_episode_id is not None:
+                sampling = single_episode_focus_plan(
+                    args.dataset_path,
+                    args.training_episode_id,
+                    args.focus_window_start,
+                    args.focus_window_end,
+                    args.focus_window_extra_copies,
+                )
+            elif focus_requested:
+                sampling = focus_window_plan(
                     args.dataset_path, args.focus_window_start, args.focus_window_end, args.focus_window_extra_copies
                 )
-                if focus_requested
-                else selection_plan(args.dataset_path, args.training_episode_id)
-            )
+            else:
+                sampling = selection_plan(args.dataset_path, args.training_episode_id)
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
 

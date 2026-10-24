@@ -1,0 +1,102 @@
+{
+  "scene_style": "factory",
+  "scene_diagnostic_only": false,
+  "source_scene_equivalence_verified": false,
+  "scene_description": "Factory floor/walls/racks with shared training HDR light",
+  "control_step": 0,
+  "capture_stage": "bridge_output_before_first_policy_call",
+  "policy_call_pending": true,
+  "cameras": {
+    "head": {
+      "model_input": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 0.0,
+        "max": 246.0,
+        "mean": 185.47209092881945
+      },
+      "pre_bridge": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 0.0,
+        "max": 246.0,
+        "mean": 185.47209092881945
+      },
+      "png": "/home/ubuntu/mycode/robotwin-gr00t-aloha/results/n17_factory/n17_public17_v12v13_blend02_router_e16_20261024_demo12.head.png",
+      "png_sha256": "b29da250400cf437d60625fb84e090d465af0a00f6b7ee7a7c576563ebee5ace",
+      "model_input_range_le_one": false
+    },
+    "left_wrist": {
+      "model_input": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 50.0,
+        "max": 227.0,
+        "mean": 156.92228190104166
+      },
+      "pre_bridge": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 50.0,
+        "max": 227.0,
+        "mean": 156.92228190104166
+      },
+      "png": "/home/ubuntu/mycode/robotwin-gr00t-aloha/results/n17_factory/n17_public17_v12v13_blend02_router_e16_20261024_demo12.left_wrist.png",
+      "png_sha256": "4341a9b64a0706ecfb69091b77c459dd7856471d52ff7a75d6fd4fed240f71b2",
+      "model_input_range_le_one": false
+    },
+    "right_wrist": {
+      "model_input": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 0.0,
+        "max": 245.0,
+        "mean": 162.78914496527779
+      },
+      "pre_bridge": {
+        "dtype": "uint8",
+        "shape": [
+          1,
+          480,
+          640,
+          3
+        ],
+        "min": 0.0,
+        "max": 245.0,
+        "mean": 162.78914496527779
+      },
+      "png": "/home/ubuntu/mycode/robotwin-gr00t-aloha/results/n17_factory/n17_public17_v12v13_blend02_router_e16_20261024_demo12.right_wrist.png",
+      "png_sha256": "f481c41d02d64483492b7d5a5ff1e1ec2ce9507b2035ddc341124c061978e270",
+      "model_input_range_le_one": false
+    }
+  },
+  "metadata_path": "/home/ubuntu/mycode/robotwin-gr00t-aloha/results/n17_factory/n17_public17_v12v13_blend02_router_e16_20261024_demo12.policy_input.json"
+}

@@ -32,7 +32,8 @@ corresponding physics, task, and settling checks pass.
 - **Reproducible data path:** audit RoboTwin HDF5 demonstrations and convert
   episode-disjoint splits to a GR00T-flavored LeRobot v2 dataset.
 - **Dual-runtime isolation:** keep the Isaac simulator and GR00T dependencies in
-  separate Python environments and assign them to separate GPUs.
+  separate Python environments; use separate GPUs when available, or serialize
+  training and online inference on a single GPU.
 - **Contact-aware demos:** retain rigid-body dynamics, collision, friction,
   gravity, and post-release settling during verified manipulation.
 - **Auditable outputs:** pair videos with JSON manifests and compressed traces
@@ -62,7 +63,17 @@ See [block stability](docs/block-stability.md) and
 
 ## N1.7 双臂工厂分拣：训练与闭环验证中
 
-![N1.7 双臂抓取与工厂分拣中文技术框架](docs/media/n17-framework-zh.png)
+![N1.7 双臂工厂分拣：教师数据、六阶段语言路由与真实模型闭环的中文流程图](assets/diagrams/twingroot_n17_factory_phase_router_zh_v3.png)
+
+上图是**生成的技术示意图，不是实验帧**。上半部分的教师重放仅用于训练；
+下半部分是可作为正式视频来源的 N1.7 在线推理路径；六阶段路由只根据新观测
+切换语言提示，不代替模型生成动作。新增 10 条公开示范
+经 Isaac 物理重放后，8 条通过、2 条剔除；与原有 9 条合格教师轨迹合并为
+17 条、12,890 帧的训练集。数据构建和验收边界见
+[第九至十三轮实验说明](docs/n17-public17-factory-training.md)。此数据验收
+**不代表模型已经完成任务**。
+
+[早期 N1.7 框架设计图（历史方案，非实验结果）](docs/media/n17-framework-zh.png)
 
 [![观看 N1.7 工厂闭环诊断录像：任务未通过](docs/media/n17_factory_online_partial_preview.png)](docs/media/n17_factory_online_partial_seed42.mp4)
 
@@ -70,6 +81,8 @@ See [block stability](docs/block-stability.md) and
 （约 24 秒，checkpoint-2000，seed 42）。此轨迹局部抬起红、蓝块，但漏抓绿块且
 最终放置不稳定，**未通过完整三块双臂分拣验收**；核验结果见
 [对应验证记录](docs/evidence/n17-factory-stage4-partial/verify.json)。
+
+[观看最新约 50 秒五机位在线推理诊断录像](docs/evidence/n17-factory-v12v13-blend02-failure/n17_public17_v12v13_blend02_router_e16_20261024_demo12.mp4)：真实模型闭环抓起红块后进入抓绿阶段，但绿、蓝块未抓起、放置不稳定，**同样不是成功 Demo**。对应的[动作／物体状态、核验和抽帧](docs/n17-public17-factory-training.md)均可复查。
 
 这张图说明实际训练、在线推理和验收流程，**不代表已经获得 N1.7 成功 Demo**。
 目前已完成时序对齐数据转换，并在单张 24 GB RTX 4090 上运行低显存后训练。
@@ -82,6 +95,8 @@ See [block stability](docs/block-stability.md) and
 510 个有效起点（0–509）各出现一次。500 步检查点已保存并通过结构核验，
 新的工厂场景闭环录制已完成，但三块物体均未满足有效抓取条件，因此第五段未通过验收。
 第六段针对绿块接近阶段追加采样并完成 1,000 步训练，真实闭环仍未形成三块有效抓取；
+后续又对 17 条合格轨迹训练，并在单案例上测试六阶段语言路由：融合权重能抓放红块，
+但绿、蓝块仍未完成。第十三轮抓绿过采样反而使红块抓取退化；与上一轮权重按 20% 插值后虽恢复红块抓取，绿、蓝块仍未完成。逐项数值与限制见[第九至十三轮实验记录](docs/n17-public17-factory-training.md)。
 截至目前没有可发布为 N1.7 完整任务成功的录像。
 即使该案例后续通过，也不代表泛化成功率。
 教师回放通过、训练 loss 下降、模型调用成功或生成 MP4 均不作为 N1.7 任务成功依据。

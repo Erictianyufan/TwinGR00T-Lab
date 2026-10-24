@@ -116,6 +116,13 @@ timing_args=()
 if [[ -n "${EXPECTED_POLICY_FPS:-}" ]]; then
   timing_args=(--expected-policy-fps "${EXPECTED_POLICY_FPS}")
 fi
+router_args=()
+if [[ "${PHASE_ROUTER:-0}" == 1 ]]; then
+  router_args=(--phase-router)
+fi
+if [[ "${PHASE_CONTEXT:-0}" == 1 ]]; then
+  router_args+=(--phase-context)
+fi
 "${sim_python}" scripts/run_aloha_n17_closedloop.py "${heldout_demo}" \
   --output "${output}" \
   --checkpoint "${model_path}" \
@@ -133,9 +140,11 @@ fi
   --action-alpha "${ACTION_ALPHA:-0.2}" \
   --max-joint-step "${MAX_JOINT_STEP:-0.06}" \
   --max-gripper-step "${MAX_GRIPPER_STEP:-0.008}" \
+  --arm-range-margin "${ARM_RANGE_MARGIN:-0.1}" \
   "${prompt_args[@]}" \
   "${camera_args[@]}" \
   "${timing_args[@]}" \
+  "${router_args[@]}" \
   --headless \
   --environment \
     manip_eval_tasks.examples.manipulation.blocks_ranking_rgb_twingroot_environment:BlocksRankingRgbEnvironment \

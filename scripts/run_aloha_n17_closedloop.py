@@ -32,9 +32,11 @@ from replay_live_multiview import (
     teleport,
 )
 
+from twingr00t_lab.action_safety import action_bounds_from_stats
 from twingr00t_lab.dataset import collapse_isaac_action
 from twingr00t_lab.grasp_acceptance import evaluate_grasp_sorting
 from twingr00t_lab.model_identity import checkpoint_identity, validate_model_identity
+from twingr00t_lab.phase_router import ThreeBlockPhaseRouter
 from twingr00t_lab.policy_bridge import build_groot_observation, groot_action_to_isaac, to_numpy
 from twingr00t_lab.policy_client import PolicyTransportClient
 from twingr00t_lab.policy_input_evidence import (
@@ -99,21 +101,6 @@ def measured_state(policy: dict) -> np.ndarray:
     ).astype(np.float32)
 
 
-def action_bounds_from_stats(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Expand the training split's 14-D empirical limits to 16 Isaac joints."""
-    statistics = json.loads(path.read_text(encoding="utf-8"))["action"]
-    lower = np.asarray(statistics["min"], dtype=np.float32)
-    upper = np.asarray(statistics["max"], dtype=np.float32)
-    if lower.shape != (14,) or upper.shape != (14,) or not np.all(lower <= upper):
-        raise ValueError("Expected valid 14-D action limits from the training split")
-
-    def expand(values: np.ndarray) -> np.ndarray:
-        return np.concatenate((values[:6], np.repeat(values[6], 2), values[7:13], np.repeat(values[13], 2)))
-
-    margin = np.asarray([0.10] * 6 + [0.0] * 2 + [0.10] * 6 + [0.0] * 2, dtype=np.float32)
-    return expand(lower) - margin, expand(upper) + margin
-
-
 def main() -> None:
     parser = get_isaaclab_arena_cli_parser()
     parser.add_argument("demo", type=Path, help="Held-out re-recording used only for initial state")
@@ -130,7 +117,21 @@ def main() -> None:
     parser.add_argument("--action-alpha", type=float, default=0.2, help="Causal low-pass coefficient for joint targets")
     parser.add_argument("--max-joint-step", type=float, default=0.06, help="Maximum arm-joint change per control step")
     parser.add_argument("--max-gripper-step", type=float, default=0.008, help="Maximum gripper change per control step")
+    parser.add_argument(
+        "--arm-range-margin", type=float, default=0.1, help="Arm target margin beyond train range (0.1–0.5 rad)"
+    )
     parser.add_argument("--prompt", help="Override the demonstration's task instruction")
+    parser.add_argument(
+        "--phase-router",
+        action="store_true",
+        help="Route six language subtasks from observed object/gripper milestones; never substitute actions",
+    )
+    parser.add_argument(
+        "--phase-context", action="store_true", help="Prefix phase prompts with the original task instruction"
+    )
+    parser.add_argument(
+        "--phase-arms", nargs=3, choices=("left", "right"), default=("right", "left", "right")
+    )
     parser.add_argument("--initial-state-split", choices=("train", "heldout"), default="heldout")
     parser.add_argument("--flow-steps", type=int, default=4, help="N1.7 server flow integration steps for audit")
     parser.add_argument("--sample-average", type=int, default=1, help="N1.7 server sample count for audit")
@@ -174,9 +175,14 @@ def main() -> None:
     if args.output.exists() or args.output.with_suffix(".json").exists():
         parser.error("Refusing to overwrite existing recording or manifest")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    action_lower, action_upper = action_bounds_from_stats(args.action_stats)
+    try:
+        action_lower, action_upper = action_bounds_from_stats(
+            args.action_stats, arm_margin_rad=args.arm_range_margin
+        )
+    except ValueError as error:
+        parser.error(str(error))
     # Persist the effective clipping limits in the canonical logical order.
-    # These include the existing arm margin; this does not alter the controller.
+    # These include the selected arm margin; this does not alter the controller.
     logical_clip_limits = collapse_isaac_action(np.stack((action_lower, action_upper)))
 
     app_launcher = AppLauncher(args)
@@ -232,11 +238,32 @@ def main() -> None:
             raise RuntimeError(f"Five-camera recording is unavailable: {sorted(missing)}")
         task_key = task_key_for(args.environment)
         prompt = args.prompt or instruction_for(args.demo, task_key)
+        if args.phase_context and not args.phase_router:
+            raise ValueError("--phase-context requires --phase-router")
+        router = (
+            ThreeBlockPhaseRouter(
+                initial_block_positions,
+                tuple(args.phase_arms),
+                context_prompt=prompt if args.phase_context else "",
+            )
+            if args.phase_router
+            else None
+        )
+        active_prompt = router.prompt if router is not None else prompt
         if args.snapshot_only:
+            robot = env.scene["robot"]
+            joint_limits = {
+                "joint_names": list(robot.joint_names),
+                "hard_rad": to_numpy(robot.data.joint_pos_limits[0]).tolist(),
+                "soft_rad": to_numpy(robot.data.soft_joint_pos_limits[0]).tolist(),
+            }
+            args.output.with_suffix(".joint_limits.json").write_text(
+                json.dumps(joint_limits, indent=2) + "\n", encoding="utf-8"
+            )
             snapshot = build_groot_observation(
                 observation["policy"],
                 observation["camera_obs"],
-                prompt,
+                active_prompt,
                 swap_rgb_bgr=args.policy_camera_bgr_swap,
             )
             save_policy_input_evidence(
@@ -313,7 +340,7 @@ def main() -> None:
                     policy_input = build_groot_observation(
                         observation["policy"],
                         observation["camera_obs"],
-                        prompt,
+                        active_prompt,
                         swap_rgb_bgr=args.policy_camera_bgr_swap,
                     )
                     if policy_input_metadata is None:
@@ -359,6 +386,7 @@ def main() -> None:
                             "action_sha256": action_sha256(chunk),
                             "raw_action_sha256": action_sha256(raw_chunk),
                             "model_identity_id": prediction_info["model_identity_id"],
+                            "language_prompt": active_prompt,
                         }
                     )
 
@@ -389,14 +417,30 @@ def main() -> None:
                 eef_positions.append(to_numpy(env.scene["ee_frame"].data.target_pos_w[0])[eef_indices].copy())
                 measured_states.append(measured_state(observation["policy"]))
                 sorting_flags.append(success_from_term(env, success_term))
+                if router is not None and router.observe(
+                    block_positions=block_positions[-1],
+                    block_linear_velocities=block_linear_velocities[-1],
+                    eef_positions=eef_positions[-1],
+                    gripper_positions=measured_states[-1][[6, 13]],
+                    control_step=step + 1,
+                ):
+                    active_prompt = router.prompt
+                    # Finish this genuine model chunk before replanning, so the
+                    # saved action trace remains exactly reconstructible.
+                    print(f"[policy] phase router -> {router.phase_index}: {active_prompt}", flush=True)
                 if step % args.record_every == 0:
+                    video_prompt = (
+                        "Current subtask: " + active_prompt.rsplit(" Current subtask: ", 1)[-1]
+                        if args.phase_context
+                        else active_prompt
+                    )
                     frame = compose_frame(
                         observation["camera_obs"],
                         step // args.record_every,
                         (args.max_steps + args.record_every - 1) // args.record_every,
                         record_fps,
                         task_key,
-                        prompt,
+                        video_prompt,
                         title_override=scene_video_title(args.scene_style, args.initial_state_split),
                     )
                     process.stdin.write(np.asarray(frame, dtype=np.uint8).tobytes())
@@ -501,6 +545,14 @@ def main() -> None:
             "seed_determinism_note": SEED_NOTE,
             "environment": env_name,
             "task_instruction": prompt,
+            "phase_router": {
+                "enabled": router is not None,
+                "arm_order": list(args.phase_arms) if router is not None else None,
+                "context_prompt": prompt if router is not None and args.phase_context else None,
+                "prompts": list(router.prompts) if router is not None else None,
+                "events": router.events if router is not None else [],
+                "action_source": "GR00T_N1.7_model_inference_only",
+            },
             "policy_camera_bgr_swap": args.policy_camera_bgr_swap,
             "steps_executed": len(actions_executed),
             "policy_calls": policy_calls,
@@ -519,6 +571,7 @@ def main() -> None:
                 "low_pass_alpha": args.action_alpha,
                 "max_joint_step": args.max_joint_step,
                 "max_gripper_step": args.max_gripper_step,
+                "arm_range_margin_rad": args.arm_range_margin,
                 "total_clipped_values": sum(call["clipped_values"] for call in policy_calls),
             },
             "cameras": list(CAMERA_KEYS),

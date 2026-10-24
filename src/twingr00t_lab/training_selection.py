@@ -97,6 +97,58 @@ def focus_window_plan(dataset_path: Path, start: int, end: int, extra_copies: in
     }
 
 
+def single_episode_focus_plan(
+    dataset_path: Path, episode_id: int, start: int, end: int, extra_copies: int
+) -> dict:
+    """Oversample one phase inside one audited episode, preserving its other starts."""
+    episode = selection_plan(dataset_path, episode_id)
+    focus = focus_window_plan(dataset_path, start, end, extra_copies)
+    return {
+        **episode,
+        "mode": "single_episode_phase_focus",
+        "window_start_inclusive": focus["window_start_inclusive"],
+        "window_end_exclusive": focus["window_end_exclusive"],
+        "extra_copies": focus["extra_copies"],
+    }
+
+
+def focus_selected_training_shards(dataset: Any, plan: dict) -> dict:
+    """Filter to one episode, then duplicate only its chosen training starts."""
+    base = filter_training_shards(dataset, plan)
+    augmented = []
+    extra_count = 0
+    for shard in dataset.sharded_episodes:
+        entries = list(shard)
+        for index, steps in shard:
+            focus = steps[(steps >= plan["window_start_inclusive"]) & (steps < plan["window_end_exclusive"])]
+            if len(focus):
+                entries.extend((index, focus.copy()) for _ in range(plan["extra_copies"]))
+                extra_count += len(focus) * plan["extra_copies"]
+        augmented.append(entries)
+    if extra_count < 1:
+        raise ValueError("Selected episode contains no valid starts in the focus window")
+    lengths = np.asarray([sum(len(steps) for _, steps in shard) for shard in augmented], dtype=np.int64)
+    dataset.sharded_episodes, dataset.shard_lengths = augmented, lengths
+    if _digest(dataset.get_dataset_statistics()) != base["dataset_statistics_content_sha256"]:
+        raise ValueError("Focused episode sampling changed normalization statistics")
+    if inspect_selection_sources(Path(plan["dataset_path"])) != base["effective_source_content"]:
+        raise ValueError("Source files changed during focused episode sampling")
+    return {
+        **plan,
+        "status": "verified_single_episode_phase_focus",
+        "loader_index": base["loader_index"],
+        "original_start_count": base["effective_start_count"],
+        "extra_start_count": extra_count,
+        "effective_start_count": int(lengths.sum()),
+        "original_each_start_exactly_once": base["each_start_exactly_once"],
+        "shard_lengths": lengths.tolist(),
+        "dataset_statistics_content_sha256": base["dataset_statistics_content_sha256"],
+        "effective_source_content": base["effective_source_content"],
+        "source_metadata_and_statistics_unchanged": True,
+        "dataset_class": base["dataset_class"],
+    }
+
+
 def focus_training_shards(dataset: Any, plan: dict) -> dict:
     root = Path(plan["dataset_path"])
     if Path(dataset.dataset_path).resolve() != root:
@@ -254,11 +306,12 @@ def install_factory_selection(factory_module: Any, plan: dict, audit_path: Path)
             raise RuntimeError("Single-episode launcher expected exactly one dataset construction")
         calls += 1
         dataset = original(*args, **kwargs)
-        audit = (
-            focus_training_shards(dataset, plan)
-            if plan["mode"] == "phase_focus_with_full_coverage"
-            else filter_training_shards(dataset, plan)
-        )
+        if plan["mode"] == "phase_focus_with_full_coverage":
+            audit = focus_training_shards(dataset, plan)
+        elif plan["mode"] == "single_episode_phase_focus":
+            audit = focus_selected_training_shards(dataset, plan)
+        else:
+            audit = filter_training_shards(dataset, plan)
         with audit_path.open("x", encoding="utf-8") as stream:
             json.dump(audit, stream, indent=2, allow_nan=False)
             stream.write("\n")
